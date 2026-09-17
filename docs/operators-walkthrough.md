@@ -98,7 +98,7 @@ The ServiceAccount is `platform-demo`. Its client-ID annotation and the SecretPr
 
 ## 7. Build and deploy a selected application release
 
-Use the demo's [private caller examples](https://github.com/MikeeeGit/aks-platform-demo/tree/main/examples/delivery), replacing all zero-SHA placeholders with one reviewed shared commit. They select `delivery.gateway.apps.json` for the maintained profile. The direct-Service configuration remains an explicit simpler alternative.
+Use the demo's [private caller examples](https://github.com/MikeeeGit/aks-platform-demo/tree/main/examples/delivery), reviewing the supplied immutable shared-template pins and updating them together when selecting another reviewed release. They select `delivery.gateway.apps.json` for the maintained profile. The direct-Service configuration remains an explicit simpler alternative.
 
 The build tests the app, builds and pushes one image, scans the selected remote digest, and publishes a promotable receipt only after the required security gate succeeds. Retain the private scan report and producer run identity. An image present in a registry is not sufficient evidence of a successful release build.
 
