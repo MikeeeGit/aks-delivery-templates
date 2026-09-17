@@ -1,6 +1,6 @@
 # GitHub Actions consumers
 
-Use private application repositories. Public CI stays on hosted workers without Azure trust. Copy the [build caller](../examples/github-build.yml) and [deploy caller](../examples/github-deploy.yml) into the private repository's `.github/workflows/`. Replace every 40-zero placeholder with the same reviewed full template commit SHA. Do not rely on mutable branches for delivery templates.
+Use private application repositories. Public CI stays on hosted workers without Azure trust. Copy the [build caller](../examples/github-build.yml) and [deploy caller](../examples/github-deploy.yml) into the private repository's `.github/workflows/`. The examples pin an immutable implementation commit. When upgrading, update both the reusable workflow reference and template-ref to the same reviewed full commit SHA. Do not rely on mutable branches for delivery templates.
 
 Create an `image-build` environment and one named environment per target (`pprd-uks-aks01`, `pprd-uks-aks02`). Configure allowed protected branches, required reviewers, no self-review/bypass where available, and restricted runner access. Review the account plan's support for private-repository environment approvals before enabling apply. YAML does not create these protections.
 

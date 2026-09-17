@@ -12,9 +12,9 @@ on:
 permissions: {contents: read, id-token: write}
 jobs:
   platform:
-    uses: MikeeeGit/aks-delivery-templates/.github/workflows/platform-services.yml@0000000000000000000000000000000000000000
+    uses: MikeeeGit/aks-delivery-templates/.github/workflows/platform-services.yml@83aed5bfcf0134de02d7df569052681d563186d7
     with:
-      template-ref: '0000000000000000000000000000000000000000'
+      template-ref: '83aed5bfcf0134de02d7df569052681d563186d7'
       config: platform.services.json
       environment: pprd
       region: uks

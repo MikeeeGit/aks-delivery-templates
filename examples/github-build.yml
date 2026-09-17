@@ -4,9 +4,9 @@ on: workflow_dispatch
 permissions: {contents: read, id-token: write}
 jobs:
   build:
-    uses: MikeeeGit/aks-delivery-templates/.github/workflows/build.yml@0000000000000000000000000000000000000000
+    uses: MikeeeGit/aks-delivery-templates/.github/workflows/build.yml@83aed5bfcf0134de02d7df569052681d563186d7
     with:
-      template-ref: '0000000000000000000000000000000000000000'
+      template-ref: '83aed5bfcf0134de02d7df569052681d563186d7'
       client-id: ${{ vars.AZURE_APP_BUILD_CLIENT_ID }}
       build-environment: image-build
       runs-on: '["ubuntu-24.04"]'

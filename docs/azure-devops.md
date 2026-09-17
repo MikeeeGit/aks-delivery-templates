@@ -1,6 +1,6 @@
 # Azure DevOps consumers
 
-Use a private Azure Repos application project and workload-identity service connections. Public Azure validation remains credential-free on hosted agents. Declare a repository resource named `aksTemplates`, pinned to the reviewed full template commit. See [build](../examples/azure-build.yml) and [deploy](../examples/azure-deploy.yml) callers; replace the zero commit placeholder and example project/service-connection names.
+Use a private Azure Repos application project and workload-identity service connections. Public Azure validation remains credential-free on hosted agents. Declare a repository resource named `aksTemplates`, pinned to the reviewed full template commit. See [build](../examples/azure-build.yml) and [deploy](../examples/azure-deploy.yml) callers; review the pinned implementation commit and replace the example project/service-connection names.
 
 The build stage template takes `stageName`, `serviceConnection`, `deploymentEnvironment` (default `image-build`), `configFile`, and `pool`. It first checks project privacy and protected-branch metadata on a hosted agent, then schedules the approved build job. The `image-release-<stageName>` artifact records the source/digest pair. Deployment job output variables are also named `imageDigest` and `sourceCommit` on the `receipt` step; use the artifact when selecting an explicit later promotion.
 
