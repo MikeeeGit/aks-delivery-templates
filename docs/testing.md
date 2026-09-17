@@ -22,3 +22,13 @@ HTTPS tests run a real temporary loopback TLS server with an ephemeral certifica
 YAML parsing and embedded Bash syntax are checked locally. Azure pipeline schema/runtime, OIDC login, Docker push, private API reachability and real workload rollout still need a separately approved private execution. Public tests do not contact Azure or a Kubernetes cluster. The sample application's own hosted container build test qualifies its Dockerfile separately from registry publication.
 
 Clients and PyYAML are checksum/hash pinned. BuildKit is pinned by the verified Docker manifest digest in `build-tools.json`; upstream release metadata is retained there. Azure CLI/Docker/Buildx come from the reviewed worker image. Keep kubectl within supported server version skew and review pins deliberately when upgrading AKS.
+
+## Argo CD evidence
+
+Bootstrap tests verify official download hashes, namespace-only installation transformation, image pins, scoped Roles, local credential configuration, deny-by-default Project, explicit target context and receipt-bound apply. Preparing the evaluation and HA manifests from pinned upstream assets is a render check; only the separate application harness installs real evaluation controllers.
+
+GitOps tests render the same committed Kustomize source as direct delivery and compare the resulting plain manifest. They check passed-build/image bindings, one-slot PR contents, exact Git tree matching before sync, wrong API endpoint/TLS refusal, Application source/project/destination binding, manual sync enforcement, completed exact-revision operation handling, stale-error recovery and proposal publication failures. Hosted provider writes are mocked: a passing unit test does not establish your private token or policy configuration.
+
+The [application's Argo acceptance harness](https://github.com/MikeeeGit/aks-platform-demo/blob/main/docs/TESTING.md) separately runs real Git, Argo, Envoy and application processes on two disposable clusters. Its report must pass before claiming reconciliation, update, rollback, failure recovery, drift repair, HPA and scoped Kubernetes RBAC behavior. It retains fixture limitations; live Azure, private Git authentication, SSO and HA failure tolerance are not inferred.
+
+See [delivery methods](delivery-methods.md) for the distinction between Kustomize rendering and Argo reconciliation.

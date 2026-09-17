@@ -1,6 +1,6 @@
 # A three-tier deployment system for private AKS
 
-The platform separates infrastructure, cluster services, and application releases because they change at different speeds and need different permissions. Terraform builds the Azure foundation. A platform pipeline manages the shared Kubernetes services. Application pipelines build one image, select the clusters that receive it, and verify the result. A separate infrastructure change controls which healthy cluster receives user traffic.
+The platform separates infrastructure, cluster services, and application releases because they change at different speeds and need different permissions. Terraform builds the Azure foundation. A platform pipeline manages the shared Kubernetes services. Application pipelines build one image and prepare selected-cluster releases. The application owner chooses direct pipeline apply or Argo CD reconciliation from Git, then verifies the result. A separate infrastructure change controls which healthy cluster receives user traffic.
 
 This public implementation preserves that structure from the original design document and delivery templates. It replaces private estate configuration with a synthetic example and modernizes the ingress path to Gateway API with Envoy Gateway. The original design is the architectural source; this repository does not establish that an existing production estate has been migrated.
 
@@ -63,7 +63,7 @@ The public platform demo is not a preinstalled production monitoring stack. Moni
 
 ## Tier 3: build once and promote the selected release
 
-The synthetic [aks-platform-demo](https://github.com/MikeeeGit/aks-platform-demo) follows the source delivery pattern without copying business application code. It uses Node.js for a small independently testable HTTP application. Kustomize remains the application deployment mechanism; Helm belongs to the platform-services layer.
+The synthetic [aks-platform-demo](https://github.com/MikeeeGit/aks-platform-demo) follows the source delivery pattern without copying business application code. It uses Node.js for a small independently testable HTTP application. Kustomize remains the shared application configuration renderer. The original direct pipeline applies its reviewed bundle; the additive Argo CD method commits the same rendered YAML to Git for Argo to reconcile. Kustomize and Argo have different responsibilities and can be used together. See [delivery methods](delivery-methods.md). Helm is used for pinned platform services in this reference.
 
 The build records the full source commit in the image and produces an immutable registry digest. A mandatory remote-image security scan blocks a promotable release receipt when HIGH or CRITICAL findings violate the gate. A pushed image whose scan failed is not an approved release. Keep the scan report with the private build evidence; a test of scanner invocation is not a successful container scan.
 
@@ -98,6 +98,14 @@ sequenceDiagram
   Infra->>Infra: Review separate saved traffic plan
   Infra->>Candidate: Switch stable backend alias
 ~~~
+
+## Optional Argo CD application delivery
+
+The infrastructure and platform tiers stay independently operated. Each selected slot gains a namespace-scoped Argo installation. CI still builds/scans once and renders the same Kustomize source, but opens a one-slot GitOps PR instead of applying workloads. Argo reads only the committed `manifest.yaml` using directory mode. It does not need an extra Kustomize render.
+
+An approved merge establishes desired state; explicit sync and HTTPS verification qualify that release. Git changes and application image changes have distinct revisions. The default is manual sync, no automatic pruning and no cascading-deletion finalizer. Continuous comparison shows drift; deliberate sync repairs it. Direct pipelines and Argo must never write the same application resources concurrently.
+
+Read the [design](argocd-design.md), [deployment](argocd-deployment.md), [operations](argocd-operations.md) and [troubleshooting](argocd-troubleshooting.md) guides. The direct sequence above remains a fully supported choice.
 
 ## TLS, identity and network policy are connected
 

@@ -94,8 +94,14 @@ def publish(platform, source, proposal):
     existing = set(subprocess.check_output(
         ["git", "ls-tree", "-r", "--name-only", "HEAD", "--", target_path(target)],
         cwd=source, text=True).splitlines())
-    api(base + "/refs?api-version=7.1", token, method="POST", basic=True,
-        payload=[{"name": "refs/heads/" + branch, "oldObjectId": "0"*40, "newObjectId": expected}])
+    ref_name = "refs/heads/" + branch
+    created_refs = api(base + "/refs?api-version=7.1", token, method="POST", basic=True,
+        payload=[{"name": ref_name, "oldObjectId": "0"*40, "newObjectId": expected}])
+    results = created_refs.get("value", []) if isinstance(created_refs, dict) else []
+    need(len(results) == 1 and results[0].get("name") == ref_name
+         and results[0].get("success") is True and results[0].get("updateStatus") == "succeeded"
+         and results[0].get("newObjectId") == expected,
+         "Azure GitOps branch creation did not succeed at the reviewed commit; no push attempted")
     azure_changes = []
     for item in changes:
         change = {"changeType": "delete" if item["content"] is None else

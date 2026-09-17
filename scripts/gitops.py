@@ -20,13 +20,28 @@ from delivery import (ALLOWED_KINDS, COMMIT, NAME, need, relative, render,
 from releases import validate_receipt
 from verify_service import verify_service, verify_ingress
 
-FILES = {"kustomization.yaml", "manifest.yaml", "release.json",
+FILES = {"manifest.yaml", "release.json",
          "build-release.json", "ingress-ca.pem"}
 SERVER = "https://kubernetes.default.svc"
 
 
 def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def api_server(value):
+    need(isinstance(value, str) and value == value.strip(), "Invalid reviewed cluster API endpoint")
+    url = urlparse(value)
+    try:
+        port = url.port
+    except ValueError:
+        raise ValueError("Invalid reviewed cluster API port") from None
+    need(url.scheme == "https" and url.hostname and not url.username and not url.password
+         and url.path in ("", "/") and not url.params and not url.query and not url.fragment
+         and not any(c.isspace() for c in value) and "\\" not in value
+         and (port is None or 1 <= port <= 65535),
+         "Cluster API endpoint must be HTTPS without credentials, path, query or fragment")
+    return url.hostname.lower(), port or 443
 
 
 def load_config(path):
@@ -46,6 +61,16 @@ def load_config(path):
     need(isinstance(branch, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_./-]{0,100}", branch)
          and ".." not in branch and not branch.endswith("/"),
          "An explicit protected GitOps branch is required")
+    servers = config.get("cluster_api_servers")
+    need(isinstance(servers, dict) and servers, "Reviewed cluster_api_servers map is required")
+    endpoints = []
+    for key, server in servers.items():
+        parts = key.split("/") if isinstance(key, str) else []
+        need(len(parts) == 3 and NAME.fullmatch(parts[0]) and NAME.fullmatch(parts[1])
+             and parts[2] in ("aks01", "aks02"),
+             "Cluster API bindings must use environment/region/slot keys")
+        endpoints.append(api_server(server))
+    need(len(endpoints) == len(set(endpoints)), "Independent slot bindings must use distinct cluster APIs")
     return config
 
 
@@ -90,7 +115,8 @@ def application(config, target):
         "spec": {
             "project": config["project"],
             "source": {"repoURL": config["repository_url"],
-                       "targetRevision": config["revision"], "path": target_path(target)},
+                       "targetRevision": config["revision"], "path": target_path(target),
+                       "directory": {"include": "manifest.yaml", "recurse": False}},
             "destination": {"server": SERVER, "namespace": target["namespace"]},
             "revisionHistoryLimit": 10,
             # No automated sync, pruning, namespace creation or deletion finalizer.
@@ -120,9 +146,6 @@ def materialize(bundle: Path, receipt_sha256: str, output: Path):
         if path.exists():
             need(path.is_file() and not path.is_symlink(), "Invalid bundle file")
             shutil.copyfile(path, output / name)
-    (output / "kustomization.yaml").write_text(yaml.safe_dump({
-        "apiVersion": "kustomize.config.k8s.io/v1beta1", "kind": "Kustomization",
-        "resources": ["manifest.yaml"]}, sort_keys=False))
     return receipt
 
 
@@ -146,10 +169,6 @@ def validate_proposal(proposal, *, require_build=True):
     need(all(p.is_file() and not p.is_symlink() and p.name in FILES for p in paths),
          "GitOps proposal contains unexpected files, links or directories")
     receipt = verify_bundle(proposal, sha(proposal / "release.json"))
-    expected = {"apiVersion": "kustomize.config.k8s.io/v1beta1", "kind": "Kustomization",
-                "resources": ["manifest.yaml"]}
-    need(yaml.safe_load((proposal / "kustomization.yaml").read_text()) == expected,
-         "GitOps wrapper must reference only its validated local manifest")
     if require_build:
         build = validate_receipt(json.loads((proposal / "build-release.json").read_text()))
         need(all(build[key] == receipt[key] for key in ("source_commit", "image", "image_digest")),
@@ -176,6 +195,30 @@ def stage(proposal, source):
     return destination
 
 
+def verify_git_revision(source, revision, bundle, target):
+    """Bind the exact Git path Argo will read to the independently reviewed bundle."""
+    need(COMMIT.fullmatch(revision), "GitOps revision must be a full commit SHA")
+    found = run(["git", "-C", str(source), "rev-parse", revision + "^{commit}"], capture=True)
+    need(found == revision, "GitOps commit does not resolve exactly")
+    prefix = target_path(target) + "/"
+    tree = subprocess.check_output(["git", "-C", str(source), "ls-tree", "-rz", revision, "--", prefix])
+    files = {}
+    for entry in tree.split(b"\0"):
+        if not entry:
+            continue
+        attrs, path = entry.decode().split("\t", 1)
+        mode, kind, _ = attrs.split()
+        relative_name = path[len(prefix):]
+        need(path.startswith(prefix) and mode == "100644" and kind == "blob" and relative_name in FILES,
+             "GitOps commit contains unexpected files or symlinks at the selected path")
+        files[relative_name] = subprocess.check_output(
+            ["git", "-C", str(source), "show", revision + ":" + path])
+    expected_files = {p.name: p.read_bytes() for p in bundle.iterdir()}
+    need(files == expected_files,
+         "Requested GitOps commit/path differs from the reviewed release bundle; refusing sync")
+    return revision
+
+
 def wait_application(base, name, revision, *, timeout=600):
     need(COMMIT.fullmatch(revision), "Expected GitOps revision must be a full commit SHA")
     deadline = time.monotonic() + timeout
@@ -187,21 +230,45 @@ def wait_application(base, name, revision, *, timeout=600):
                   if c.get("type") in ("InvalidSpecError", "ComparisonError", "SyncError")]
         operation = status.get("operationState", {})
         current_operation = operation.get("syncResult", {}).get("revision") == revision
-        if errors or (current_operation and operation.get("phase") in ("Error", "Failed")):
+        # Conditions from a prior failure may outlive its operation during recovery.
+        # Only a completed failure bound to this revision is immediately fatal.
+        if current_operation and not value.get("operation") and operation.get("phase") in ("Error", "Failed"):
             raise ValueError("Argo reconciliation failed: " + "; ".join(errors or [operation.get("message", "")]))
-        if (status.get("sync", {}).get("status") == "Synced"
+        if (current_operation and operation.get("phase") == "Succeeded" and not value.get("operation")
+                and not errors
+                and status.get("sync", {}).get("status") == "Synced"
                 and status.get("sync", {}).get("revision") == revision
                 and status.get("health", {}).get("status") == "Healthy"):
             return value
         if time.monotonic() >= deadline:
-            raise TimeoutError("Argo did not reach Synced/Healthy at the exact requested Git commit")
+            detail = "; ".join(errors) if errors else operation.get("message", "")
+            raise TimeoutError("Argo did not reach completed Synced/Healthy at the exact requested Git commit"
+                               + (": " + detail if detail else ""))
         time.sleep(2)
+
+
+def verify_cluster_context(base, config, target):
+    """Read local kubeconfig only; reject wrong clusters before any API or sync request."""
+    key = "/".join(target[field] for field in ("environment", "region", "slot"))
+    expected = config["cluster_api_servers"].get(key)
+    need(expected is not None, "Selected slot has no reviewed cluster API binding")
+    local = json.loads(run(base + ["config", "view", "--minify", "-o", "json"], capture=True))
+    clusters = local.get("clusters", [])
+    need(len(clusters) == 1 and isinstance(clusters[0].get("cluster"), dict),
+         "Selected kubeconfig must resolve to exactly one cluster")
+    cluster = clusters[0]["cluster"]
+    need(cluster.get("insecure-skip-tls-verify", False) is False,
+         "Insecure Kubernetes API TLS verification is forbidden")
+    need(cluster.get("server") == expected,
+         "Selected kubeconfig API server differs from the reviewed slot binding")
+    need(not cluster.get("tls-server-name") or cluster["tls-server-name"] == api_server(expected)[0],
+         "Kubeconfig TLS server-name differs from the reviewed API hostname")
 
 
 def request_sync(base, name, revision):
     need(COMMIT.fullmatch(revision), "Sync requires a full reviewed GitOps commit SHA")
     value = json.loads(run(base + ["get", "application", name, "-o", "json"], capture=True))
-    need(not value.get("spec", {}).get("syncPolicy", {}).get("automated"),
+    need(value.get("spec", {}).get("syncPolicy", {}).get("automated") is None,
          "This operator command requires manual sync; disable automated sync before explicit release control")
     need(not value.get("operation"), "Another Argo operation is already running")
     patch = {"operation": {"initiatedBy": {"username": "reviewed-gitops-operator"},
@@ -210,15 +277,19 @@ def request_sync(base, name, revision):
 
 
 def verify_release(bundle, expected_receipt, kubeconfig, context, argo_namespace, app_name,
-                   git_revision, *, gitops_config, sync=False, timeout=600):
+                   git_revision, *, gitops_config, gitops_source, sync=False, timeout=600):
     receipt = verify_bundle(bundle, expected_receipt)
+    validate_proposal(bundle)
     target = receipt["target"]
-    need(context and kubeconfig.is_file(), "Explicit existing kubeconfig and context required")
+    verify_git_revision(gitops_source, git_revision, bundle, target)
+    need(context and not context.startswith("-") and kubeconfig.is_file(),
+         "Explicit existing kubeconfig and context required")
     base = ["kubectl", "--kubeconfig", str(kubeconfig), "--context", context]
     argo = base + ["--namespace", argo_namespace]
     config = load_config(gitops_config)
     need(config["argo_namespace"] == argo_namespace and application_name(config, target) == app_name,
          "Argo namespace/Application name differs from reviewed GitOps configuration")
+    verify_cluster_context(base, config, target)
     current = json.loads(run(argo + ["get", "application", app_name, "-o", "json"], capture=True))
     wanted = application(config, target)["spec"]
     need(all(current["spec"].get(k) == wanted[k] for k in ("source", "destination", "project"))
@@ -269,6 +340,7 @@ def main():
         p = commands.add_parser(name)
         p.add_argument("--bundle", type=Path, required=True)
         p.add_argument("--gitops-config", type=Path, required=True)
+        p.add_argument("--gitops-source", type=Path, required=True)
         p.add_argument("--receipt-sha256", required=True)
         p.add_argument("--kubeconfig", type=Path, required=True)
         p.add_argument("--context", required=True)
@@ -294,7 +366,7 @@ def main():
     else:
         value = verify_release(args.bundle, args.receipt_sha256, args.kubeconfig, args.context,
                                args.argo_namespace, args.application, args.gitops_commit,
-                               gitops_config=args.gitops_config, sync=args.command == "sync", timeout=args.timeout)
+                               gitops_config=args.gitops_config, gitops_source=args.gitops_source, sync=args.command == "sync", timeout=args.timeout)
     print(json.dumps(value))
 
 

@@ -1,5 +1,7 @@
 # Operator walkthrough: from an empty subscription to a verified release
 
+This walkthrough describes the original direct pipeline method. The additive [Argo CD method](argocd-deployment.md) shares the same infrastructure, platform and Kustomize source. [Choose one application writer](delivery-methods.md) before deployment.
+
 Use this with the [three-tier design](three-tier-deployment-system.md), [ingress migration guide](ingress-migration.md), and each infrastructure repository's setup instructions. The sequence establishes dependencies in order and distinguishes Kubernetes release checks from actual Azure traffic qualification.
 
 Public files use synthetic IDs, names, addresses and domains. Create private consumers, replace those values together, and pin shared templates to a reviewed full commit. A public example is not ready for a privileged production apply unchanged.

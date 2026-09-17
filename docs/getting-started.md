@@ -1,5 +1,7 @@
 # First deployment
 
+This walkthrough describes the original direct pipeline method. The additive [Argo CD method](argocd-deployment.md) shares the same infrastructure, platform and Kustomize source. [Choose one application writer](delivery-methods.md) before deployment.
+
 Prepare the network and [Azure AKS Foundation](https://github.com/MikeeeGit/azure-aks-foundation), with working private API DNS/routing, node egress, Entra RBAC and registry pull rights. ACR/private Key Vault endpoints need their own network path. The AKS CSI add-on does not create application workload federation, permissions or SecretProviderClasses automatically.
 
 Run the separate [bootstrap workflow/stage](bootstrap.md) for each selected slot. It validates the private AKS/Entra/workload-identity baseline, creates the namespace with restricted Pod Security labels and assigns deployment identities Cluster User plus namespace-scoped AKS RBAC Writer. Infrastructure supplies the CSI add-on when used; bootstrap verifies it. Normal application deployment rejects Namespace and cluster-scoped objects and never requests admin credentials.
