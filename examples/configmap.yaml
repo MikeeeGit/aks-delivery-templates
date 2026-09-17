@@ -1,0 +1,9 @@
+# Optional non-sensitive application configuration; commit through an overlay.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: platform-demo-settings
+  namespace: platform-demo
+data:
+  LOG_LEVEL: info
+  FEATURE_EXAMPLE: "false"

@@ -1,0 +1,95 @@
+parameters:
+  - name: stageName
+    type: string
+    default: BuildApplication
+  - name: serviceConnection
+    type: string
+  - name: deploymentEnvironment
+    type: string
+    default: image-build
+  - name: configFile
+    type: string
+    default: delivery.apps.json
+  - name: pool
+    type: object
+    default: {vmImage: ubuntu-24.04}
+stages:
+  - stage: ${{ parameters.stageName }}_Guard
+    jobs:
+      - job: Guard
+        pool: {vmImage: ubuntu-24.04}
+        steps:
+        - checkout: self
+          path: s/app
+          fetchDepth: 0
+          persistCredentials: false
+        - checkout: aksTemplates
+          path: s/templates
+          persistCredentials: false
+        - bash: python3 "$(Pipeline.Workspace)/s/templates/scripts/ci_guard.py" azure-devops
+          displayName: Require private Azure Repos project and protected branch
+          env:
+            SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+  - stage: ${{ parameters.stageName }}
+    dependsOn: ${{ parameters.stageName }}_Guard
+    jobs:
+      - deployment: Build
+        environment: ${{ parameters.deploymentEnvironment }}
+        pool: ${{ parameters.pool }}
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+              - checkout: self
+                path: s/app
+                fetchDepth: 0
+                persistCredentials: false
+              - checkout: aksTemplates
+                path: s/templates
+                persistCredentials: false
+              - bash: |
+                  set -euo pipefail
+                  python3 -m venv "$(Agent.TempDirectory)/aks-python"
+                  "$(Agent.TempDirectory)/aks-python/bin/pip" install --require-hashes -r "$(Pipeline.Workspace)/s/templates/requirements.txt"
+                  python3 "$(Pipeline.Workspace)/s/templates/scripts/install_tools.py" --directory "$(Agent.TempDirectory)/aks-tools"
+                displayName: Install verified delivery clients
+              - bash: python3 "$(Pipeline.Workspace)/s/templates/scripts/ci_guard.py" azure-devops --latest
+                displayName: Recheck protected branch after build approval
+                env:
+                  SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+              - task: AzureCLI@2
+                name: receipt
+                inputs:
+                  azureSubscription: ${{ parameters.serviceConnection }}
+                  scriptType: bash
+                  scriptLocation: inlineScript
+                  visibleAzLogin: false
+                  inlineScript: |
+                    set -euo pipefail
+                    "$(Agent.TempDirectory)/aks-python/bin/python" "$(Pipeline.Workspace)/s/templates/scripts/delivery.py" build --source "$(Pipeline.Workspace)/s/app" --config "$CONFIG_FILE" --commit "$SOURCE_COMMIT" --output "$(Agent.TempDirectory)/image-release"
+                    "$(Agent.TempDirectory)/aks-python/bin/python" - <<'PYOUTPUT'
+                    import json, os
+                    from pathlib import Path
+                    r=json.loads((Path(os.environ['RELEASE_DIR'])/'release.json').read_text())
+                    print('##vso[task.setvariable variable=imageDigest;isOutput=true]'+r['image_digest'])
+                    print('##vso[task.setvariable variable=sourceCommit;isOutput=true]'+r['source_commit'])
+                    PYOUTPUT
+                env:
+                  CONFIG_FILE: ${{ parameters.configFile }}
+                  SOURCE_COMMIT: $(Build.SourceVersion)
+                  RELEASE_DIR: $(Agent.TempDirectory)/image-release
+              - task: PublishPipelineArtifact@1
+                inputs:
+                  targetPath: $(Agent.TempDirectory)/image-release/release.json
+                  artifact: image-release-${{ parameters.stageName }}
+              - bash: |
+                  if [ -f "$(Agent.TempDirectory)/image-release/image-scan.json" ]; then
+                    echo '##vso[task.setvariable variable=scanReportExists]true'
+                  fi
+                condition: always()
+                displayName: Locate the private image scan report
+              - task: PublishPipelineArtifact@1
+                condition: and(always(), eq(variables['scanReportExists'], 'true'))
+                inputs:
+                  targetPath: $(Agent.TempDirectory)/image-release/image-scan.json
+                  artifact: image-scan-${{ parameters.stageName }}

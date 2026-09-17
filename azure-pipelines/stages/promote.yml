@@ -1,0 +1,77 @@
+parameters:
+  - name: stageName
+    type: string
+    default: PromoteApplication
+  - name: buildRunId
+    type: string
+  - name: buildDefinitionId
+    type: string
+  - name: buildArtifact
+    type: string
+    default: image-release-BuildApplication
+  - name: serviceConnection
+    type: string
+  - name: environment
+    type: string
+  - name: region
+    type: string
+  - name: clusterSlots
+    type: object
+    default: [aks01]
+  - name: deploySequentially
+    type: boolean
+    default: true
+  - name: configFile
+    type: string
+    default: delivery.apps.json
+  - name: pool
+    type: object
+    default: {name: aks-private}
+stages:
+  - stage: ${{ parameters.stageName }}_Release
+    jobs:
+      - job: Resolve
+        pool: {vmImage: ubuntu-24.04}
+        steps:
+          - checkout: aksTemplates
+            path: s/templates
+            persistCredentials: false
+          - bash: python3 "$(Pipeline.Workspace)/s/templates/scripts/ci_guard.py" azure-devops
+            displayName: Guard trusted private source
+            env:
+              SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+          - bash: |
+              set -euo pipefail
+              python3 -m venv "$(Agent.TempDirectory)/aks-python"
+              "$(Agent.TempDirectory)/aks-python/bin/pip" install --require-hashes -r "$(Pipeline.Workspace)/s/templates/requirements.txt"
+              "$(Agent.TempDirectory)/aks-python/bin/python" "$(Pipeline.Workspace)/s/templates/scripts/releases.py" azure-devops --run-id "$BUILD_RUN_ID" --definition "$BUILD_DEFINITION_ID" --artifact-name "$BUILD_ARTIFACT" --output "$SELECTED_RELEASE"
+              python3 - <<'PY'
+              import json,os
+              from pathlib import Path
+              release=json.loads((Path(os.environ['SELECTED_RELEASE'])/'release.json').read_text())
+              print('##vso[task.setvariable variable=sourceCommit;isOutput=true]'+release['source_commit'])
+              print('##vso[task.setvariable variable=imageDigest;isOutput=true]'+release['image_digest'])
+              PY
+            name: release
+            env:
+              SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+              BUILD_RUN_ID: ${{ parameters.buildRunId }}
+              BUILD_DEFINITION_ID: ${{ parameters.buildDefinitionId }}
+              BUILD_ARTIFACT: ${{ parameters.buildArtifact }}
+              SELECTED_RELEASE: $(Agent.TempDirectory)/selected-release
+  - template: deploy-selected.yml
+    parameters:
+      stageName: ${{ parameters.stageName }}
+      serviceConnection: ${{ parameters.serviceConnection }}
+      environment: ${{ parameters.environment }}
+      region: ${{ parameters.region }}
+      clusterSlots: ${{ parameters.clusterSlots }}
+      deploySequentially: ${{ parameters.deploySequentially }}
+      configFile: ${{ parameters.configFile }}
+      pool: ${{ parameters.pool }}
+      sourceCommit: $(selectedSourceCommit)
+      imageDigest: $(selectedImageDigest)
+      dependsOn: ['${{ parameters.stageName }}_Release']
+      stageVariables:
+        selectedSourceCommit: $[ stageDependencies.${{ parameters.stageName }}_Release.Resolve.outputs['release.sourceCommit'] ]
+        selectedImageDigest: $[ stageDependencies.${{ parameters.stageName }}_Release.Resolve.outputs['release.imageDigest'] ]

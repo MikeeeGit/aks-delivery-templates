@@ -1,0 +1,15 @@
+# Private Azure Repos only. Replace the repository/project, pin and service connection.
+trigger: none
+pr: none
+resources:
+  repositories:
+    - repository: aksTemplates
+      type: git
+      name: ExampleProject/aks-delivery-templates
+      ref: '0000000000000000000000000000000000000000'
+stages:
+  - template: azure-pipelines/stages/build.yml@aksTemplates
+    parameters:
+      serviceConnection: app-build-oidc
+      deploymentEnvironment: image-build
+      pool: {vmImage: ubuntu-24.04}

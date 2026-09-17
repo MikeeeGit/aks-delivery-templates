@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: reviewed-platform-profile
+  namespace: ingress
+data:
+  profile: archived-ingress-nginx-compatibility
+  lifecycle: retired-explicit-opt-in
+  applicationIngressClass: nginx

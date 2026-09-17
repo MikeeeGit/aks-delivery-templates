@@ -1,0 +1,116 @@
+name: Upgrade reviewed platform services on one AKS slot
+on:
+  workflow_call:
+    inputs:
+      template-ref: {type: string, required: true}
+      config: {type: string, default: platform.services.json}
+      environment: {type: string, required: true}
+      region: {type: string, required: true}
+      cluster-slot: {type: string, required: true}
+      client-id: {type: string, required: true}
+      runs-on: {type: string, default: '["self-hosted","linux","aks-private"]'}
+permissions: {contents: read}
+concurrency:
+  group: platform-${{ github.repository }}-${{ inputs.environment }}-${{ inputs.region }}-${{ inputs.cluster-slot }}
+  cancel-in-progress: false
+jobs:
+  render:
+    runs-on: ubuntu-24.04
+    outputs:
+      tenant_id: ${{ steps.render.outputs.tenant_id }}
+      subscription_id: ${{ steps.render.outputs.subscription_id }}
+      environment: ${{ steps.render.outputs.approval_environment }}
+      receipt_sha256: ${{ steps.render.outputs.receipt_sha256 }}
+      artifact_id: ${{ steps.artifact.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: app
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: MikeeeGit/aks-delivery-templates
+          ref: ${{ inputs.template-ref }}
+          path: templates
+          persist-credentials: false
+      - name: Guard private caller and reviewed source ancestry
+        shell: bash
+        run: python3 templates/scripts/ci_guard.py github --source app --source-commit "$SOURCE_COMMIT"
+        env:
+          PRIVATE_REPOSITORY: ${{ github.event.repository.private }}
+          TEMPLATE_REF: ${{ inputs.template-ref }}
+          RUNNER_LABELS: ${{ inputs.runs-on }}
+          SOURCE_COMMIT: ${{ github.sha }}
+      - name: Install pinned Python dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/aks-python"
+          "$RUNNER_TEMP/aks-python/bin/pip" install --require-hashes -r templates/requirements.txt
+      - name: Install verified Kubernetes clients
+        run: python3 templates/scripts/install_tools.py --directory "$RUNNER_TEMP/aks-tools"
+      - id: render
+        shell: bash
+        env:
+          CONFIG: ${{ inputs.config }}
+          SOURCE_COMMIT: ${{ github.sha }}
+          TARGET_ENVIRONMENT: ${{ inputs.environment }}
+          REGION: ${{ inputs.region }}
+          CLUSTER_SLOT: ${{ inputs.cluster-slot }}
+        run: '"$RUNNER_TEMP/aks-python/bin/python" templates/scripts/platform_services.py prepare --source app --config "$CONFIG" --commit "$SOURCE_COMMIT" --environment "$TARGET_ENVIRONMENT" --region "$REGION" --slot "$CLUSTER_SLOT" --output "$RUNNER_TEMP/bundle" --github-output "$GITHUB_OUTPUT"'
+      - id: artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: platform-${{ github.run_id }}-${{ inputs.environment }}-${{ inputs.region }}-${{ inputs.cluster-slot }}
+          path: ${{ runner.temp }}/bundle/
+          retention-days: 1
+          if-no-files-found: error
+  deploy:
+    needs: render
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    environment: ${{ needs.render.outputs.environment }}
+    permissions: {contents: read, id-token: write}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: MikeeeGit/aks-delivery-templates
+          ref: ${{ inputs.template-ref }}
+          path: templates
+          persist-credentials: false
+      - name: Install pinned Python dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/aks-python"
+          "$RUNNER_TEMP/aks-python/bin/pip" install --require-hashes -r templates/requirements.txt
+      - name: Install verified Kubernetes clients
+        run: python3 templates/scripts/install_tools.py --directory "$RUNNER_TEMP/aks-tools"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.render.outputs.artifact_id }}
+          path: ${{ runner.temp }}/bundle
+          merge-multiple: true
+      - name: Recheck protected branch after environment approval
+        run: python3 templates/scripts/ci_guard.py github --latest
+        env:
+          PRIVATE_REPOSITORY: ${{ github.event.repository.private }}
+          TEMPLATE_REF: ${{ inputs.template-ref }}
+          RUNNER_LABELS: ${{ inputs.runs-on }}
+          GH_TOKEN: ${{ github.token }}
+      - name: Create a fresh Azure CLI profile
+        run: |
+          set -euo pipefail
+          profile=$(mktemp -d "$RUNNER_TEMP/aks-azure.XXXXXX")
+          test -d "$profile"
+          printf 'AZURE_CONFIG_DIR=%s\n' "$profile" >> "$GITHUB_ENV"
+      - uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ inputs.client-id }}
+          tenant-id: ${{ needs.render.outputs.tenant_id }}
+          subscription-id: ${{ needs.render.outputs.subscription_id }}
+      - name: Upgrade pinned Helm releases from the approved platform bundle
+        shell: bash
+        env:
+          RECEIPT_SHA256: ${{ needs.render.outputs.receipt_sha256 }}
+        run: '"$RUNNER_TEMP/aks-python/bin/python" templates/scripts/platform_services.py apply --output "$RUNNER_TEMP/bundle" --receipt-sha256 "$RECEIPT_SHA256" --yes'

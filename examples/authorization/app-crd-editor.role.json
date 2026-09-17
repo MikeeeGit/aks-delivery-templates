@@ -1,0 +1,15 @@
+{
+  "Name": "AKS Application Route and CSI Editor",
+  "IsCustom": true,
+  "Description": "Use only with the supplied namespace-scoped conditional assignment; never assign without its condition.",
+  "Actions": [],
+  "NotActions": [],
+  "DataActions": [
+    "Microsoft.ContainerService/managedClusters/customresources/read",
+    "Microsoft.ContainerService/managedClusters/customresources/write"
+  ],
+  "NotDataActions": [],
+  "AssignableScopes": [
+    "/subscriptions/00000000-0000-0000-0000-000000000003"
+  ]
+}

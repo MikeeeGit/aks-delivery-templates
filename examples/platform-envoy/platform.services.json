@@ -1,0 +1,108 @@
+{
+  "schema_version": 1,
+  "tenant_id": "00000000-0000-0000-0000-000000000001",
+  "targets": [
+    {
+      "environment": "pprd",
+      "region": "uks",
+      "slot": "aks01",
+      "subscription_id": "00000000-0000-0000-0000-000000000003",
+      "resource_group": "uks-pprd-example-aks-rg",
+      "cluster_name": "uks-pprd-example-aks01",
+      "approval_environment": "platform-pprd-uks-aks01",
+      "namespaces": [
+        "envoy-gateway-system",
+        "platform-demo"
+      ],
+      "manage_crds": true,
+      "crd_bundles": [
+        {
+          "url": "https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.6.1/standard-install.yaml",
+          "sha256": "24d931f22abd8e40c973264319ead7cfa09d0fb7716b7ab1ee2ff174cb063a73"
+        },
+        {
+          "url": "https://github.com/envoyproxy/gateway/releases/download/v1.9.1/envoy-gateway-crds.yaml",
+          "sha256": "613fac22b8673735e97fd2523098974bd74cb0cc78e444602b3383d1217b8aab"
+        }
+      ],
+      "manifests": [
+        "manifests/proxy-aks01.yaml",
+        "manifests/gateway.yaml"
+      ],
+      "workload_service_accounts": [
+        {
+          "name": "platform-demo",
+          "namespace": "platform-demo",
+          "client_id": "00000000-0000-0000-0000-000000000201"
+        }
+      ],
+      "releases": [
+        {
+          "name": "envoy-gateway",
+          "namespace": "envoy-gateway-system",
+          "chart": {
+            "name": "gateway-helm",
+            "version": "v1.9.1",
+            "url": "oci://docker.io/envoyproxy/gateway-helm@sha256:91bae9aedb91ab34731e987afe01a3ccf454393015abeca705eea8ee15553e86",
+            "sha256": "68ce74961eeb5fc5e395628d6bbed9305a85b34619bd7ee17b01187f101bb8c5"
+          },
+          "values": [
+            "values/controller.yaml"
+          ],
+          "timeout_seconds": 900
+        }
+      ]
+    },
+    {
+      "environment": "pprd",
+      "region": "uks",
+      "slot": "aks02",
+      "subscription_id": "00000000-0000-0000-0000-000000000003",
+      "resource_group": "uks-pprd-example-aks-rg",
+      "cluster_name": "uks-pprd-example-aks02",
+      "approval_environment": "platform-pprd-uks-aks02",
+      "namespaces": [
+        "envoy-gateway-system",
+        "platform-demo"
+      ],
+      "manage_crds": true,
+      "crd_bundles": [
+        {
+          "url": "https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.6.1/standard-install.yaml",
+          "sha256": "24d931f22abd8e40c973264319ead7cfa09d0fb7716b7ab1ee2ff174cb063a73"
+        },
+        {
+          "url": "https://github.com/envoyproxy/gateway/releases/download/v1.9.1/envoy-gateway-crds.yaml",
+          "sha256": "613fac22b8673735e97fd2523098974bd74cb0cc78e444602b3383d1217b8aab"
+        }
+      ],
+      "manifests": [
+        "manifests/proxy-aks02.yaml",
+        "manifests/gateway.yaml"
+      ],
+      "workload_service_accounts": [
+        {
+          "name": "platform-demo",
+          "namespace": "platform-demo",
+          "client_id": "00000000-0000-0000-0000-000000000201"
+        }
+      ],
+      "releases": [
+        {
+          "name": "envoy-gateway",
+          "namespace": "envoy-gateway-system",
+          "chart": {
+            "name": "gateway-helm",
+            "version": "v1.9.1",
+            "url": "oci://docker.io/envoyproxy/gateway-helm@sha256:91bae9aedb91ab34731e987afe01a3ccf454393015abeca705eea8ee15553e86",
+            "sha256": "68ce74961eeb5fc5e395628d6bbed9305a85b34619bd7ee17b01187f101bb8c5"
+          },
+          "values": [
+            "values/controller.yaml"
+          ],
+          "timeout_seconds": 900
+        }
+      ]
+    }
+  ]
+}

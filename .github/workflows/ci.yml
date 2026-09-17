@@ -1,0 +1,18 @@
+name: Credential-free validation
+on:
+  push: {branches: [main, develop]}
+  pull_request:
+permissions: {contents: read}
+jobs:
+  validation:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {persist-credentials: false}
+      - name: Install hashed test dependency and verified client
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --require-hashes -r requirements.txt
+          python3 scripts/install_tools.py --directory "$RUNNER_TEMP/aks-tools"
+      - name: Run offline unit and real Kustomize render tests
+        run: .venv/bin/python -m unittest discover -s tests -v

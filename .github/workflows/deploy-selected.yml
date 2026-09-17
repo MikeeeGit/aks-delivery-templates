@@ -1,0 +1,85 @@
+name: Deploy the same release to selected AKS slots
+on:
+  workflow_call:
+    inputs:
+      template-ref: {type: string, required: true}
+      config: {type: string, default: delivery.apps.json}
+      source-commit: {type: string, required: true}
+      image-digest: {type: string, required: true}
+      environment: {type: string, required: true}
+      region: {type: string, required: true}
+      cluster-slots: {type: string, default: '["aks01"]'}
+      deploy-sequentially: {type: boolean, default: true}
+      client-id: {type: string, required: true}
+      runs-on: {type: string, default: '["self-hosted","linux","aks-private"]'}
+permissions: {contents: read, id-token: write}
+jobs:
+  selection:
+    runs-on: ubuntu-24.04
+    permissions: {contents: read}
+    outputs:
+      slots: ${{ steps.check.outputs.slots }}
+      first: ${{ steps.check.outputs.first }}
+      second: ${{ steps.check.outputs.second }}
+    steps:
+      - id: check
+        shell: bash
+        env:
+          SLOTS: ${{ inputs.cluster-slots }}
+          PRIVATE_REPOSITORY: ${{ github.event.repository.private }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os
+          slots = json.loads(os.environ['SLOTS'])
+          if os.environ['PRIVATE_REPOSITORY'] != 'true' or slots not in [['aks01'], ['aks02'], ['aks01','aks02'], ['aks02','aks01']]:
+              raise SystemExit('Select one or both unique slots in a private consumer')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('slots='+json.dumps(slots)+'\nfirst='+slots[0]+'\nsecond='+(slots[1] if len(slots)==2 else '')+'\n')
+          PY
+  first:
+    if: inputs.deploy-sequentially
+    needs: selection
+    uses: ./.github/workflows/deploy.yml
+    with:
+      template-ref: ${{ inputs.template-ref }}
+      config: ${{ inputs.config }}
+      source-commit: ${{ inputs.source-commit }}
+      image-digest: ${{ inputs.image-digest }}
+      environment: ${{ inputs.environment }}
+      region: ${{ inputs.region }}
+      cluster-slot: ${{ needs.selection.outputs.first }}
+      client-id: ${{ inputs.client-id }}
+      runs-on: ${{ inputs.runs-on }}
+  second:
+    if: inputs.deploy-sequentially && needs.first.result == 'success' && needs.selection.outputs.second != ''
+    needs: [selection, first]
+    uses: ./.github/workflows/deploy.yml
+    with:
+      template-ref: ${{ inputs.template-ref }}
+      config: ${{ inputs.config }}
+      source-commit: ${{ inputs.source-commit }}
+      image-digest: ${{ inputs.image-digest }}
+      environment: ${{ inputs.environment }}
+      region: ${{ inputs.region }}
+      cluster-slot: ${{ needs.selection.outputs.second }}
+      client-id: ${{ inputs.client-id }}
+      runs-on: ${{ inputs.runs-on }}
+  parallel:
+    if: '!inputs.deploy-sequentially'
+    needs: selection
+    strategy:
+      fail-fast: false
+      matrix:
+        slot: ${{ fromJSON(needs.selection.outputs.slots) }}
+    uses: ./.github/workflows/deploy.yml
+    with:
+      template-ref: ${{ inputs.template-ref }}
+      config: ${{ inputs.config }}
+      source-commit: ${{ inputs.source-commit }}
+      image-digest: ${{ inputs.image-digest }}
+      environment: ${{ inputs.environment }}
+      region: ${{ inputs.region }}
+      cluster-slot: ${{ matrix.slot }}
+      client-id: ${{ inputs.client-id }}
+      runs-on: ${{ inputs.runs-on }}

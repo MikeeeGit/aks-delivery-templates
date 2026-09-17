@@ -1,0 +1,113 @@
+name: Bootstrap namespaces and scoped application permissions
+on:
+  workflow_call:
+    inputs:
+      template-ref: {type: string, required: true}
+      config: {type: string, default: delivery.apps.json}
+      bootstrap-config: {type: string, default: bootstrap.apps.json}
+      environment: {type: string, required: true}
+      region: {type: string, required: true}
+      cluster-slots: {type: string, default: '["aks01"]'}
+      client-id: {type: string, required: true}
+      runs-on: {type: string, default: '["self-hosted","linux","aks-private"]'}
+permissions: {contents: read}
+jobs:
+  guard:
+    runs-on: ubuntu-24.04
+    outputs:
+      targets: ${{ steps.targets.outputs.targets }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {path: app, persist-credentials: false}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: MikeeeGit/aks-delivery-templates
+          ref: ${{ inputs.template-ref }}
+          path: templates
+          persist-credentials: false
+      - name: Require private trusted manual caller
+        run: python3 templates/scripts/ci_guard.py github
+        env:
+          PRIVATE_REPOSITORY: ${{ github.event.repository.private }}
+          TEMPLATE_REF: ${{ inputs.template-ref }}
+          RUNNER_LABELS: ${{ inputs.runs-on }}
+      - name: Install verified dependency
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/aks-python"
+          "$RUNNER_TEMP/aks-python/bin/pip" install --require-hashes -r templates/requirements.txt
+      - id: targets
+        env:
+          SLOTS: ${{ inputs.cluster-slots }}
+          CONFIG: ${{ inputs.config }}
+          BOOTSTRAP_CONFIG: ${{ inputs.bootstrap-config }}
+          TARGET_ENVIRONMENT: ${{ inputs.environment }}
+          REGION: ${{ inputs.region }}
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/aks-python/bin/python" - <<'PY'
+          import json,os,sys
+          from pathlib import Path
+          sys.path.insert(0,'templates/scripts')
+          import bootstrap
+          slots=json.loads(os.environ['SLOTS'])
+          if slots not in [['aks01'],['aks02'],['aks01','aks02'],['aks02','aks01']]:
+              raise SystemExit('Select one or both unique slots')
+          targets=[]
+          for slot in slots:
+              app,target,settings=bootstrap.configuration(Path('app').resolve(),os.environ['CONFIG'],os.environ['BOOTSTRAP_CONFIG'],os.environ['TARGET_ENVIRONMENT'],os.environ['REGION'],slot)
+              targets.append(dict(slot=slot,tenant_id=app['tenant_id'],subscription_id=target['subscription_id'],approval_environment=settings['approval_environment']))
+          with open(os.environ['GITHUB_OUTPUT'],'a') as output:
+              output.write('targets='+json.dumps(targets)+'\n')
+          PY
+  bootstrap:
+    needs: guard
+    strategy:
+      fail-fast: true
+      max-parallel: 1
+      matrix:
+        target: ${{ fromJSON(needs.guard.outputs.targets) }}
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    environment: ${{ matrix.target.approval_environment }}
+    permissions: {contents: read, id-token: write}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {path: app, persist-credentials: false}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: MikeeeGit/aks-delivery-templates
+          ref: ${{ inputs.template-ref }}
+          path: templates
+          persist-credentials: false
+      - name: Install verified delivery tools
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/aks-python"
+          "$RUNNER_TEMP/aks-python/bin/pip" install --require-hashes -r templates/requirements.txt
+          python3 templates/scripts/install_tools.py --directory "$RUNNER_TEMP/aks-tools"
+      - name: Recheck protected branch after bootstrap approval
+        run: python3 templates/scripts/ci_guard.py github --latest
+        env:
+          PRIVATE_REPOSITORY: ${{ github.event.repository.private }}
+          TEMPLATE_REF: ${{ inputs.template-ref }}
+          RUNNER_LABELS: ${{ inputs.runs-on }}
+          GH_TOKEN: ${{ github.token }}
+      - name: Isolate Azure CLI profile
+        run: |
+          set -euo pipefail
+          profile=$(mktemp -d "$RUNNER_TEMP/aks-bootstrap-azure.XXXXXX")
+          printf 'AZURE_CONFIG_DIR=%s\n' "$profile" >> "$GITHUB_ENV"
+      - uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ inputs.client-id }}
+          tenant-id: ${{ matrix.target.tenant_id }}
+          subscription-id: ${{ matrix.target.subscription_id }}
+      - name: Bootstrap the reviewed namespace and scoped roles
+        env:
+          CONFIG: ${{ inputs.config }}
+          BOOTSTRAP_CONFIG: ${{ inputs.bootstrap-config }}
+          TARGET_ENVIRONMENT: ${{ inputs.environment }}
+          REGION: ${{ inputs.region }}
+          SLOT: ${{ matrix.target.slot }}
+          SOURCE_COMMIT: ${{ github.sha }}
+        run: '"$RUNNER_TEMP/aks-python/bin/python" templates/scripts/bootstrap.py apply --source app --config "$CONFIG" --bootstrap-config "$BOOTSTRAP_CONFIG" --commit "$SOURCE_COMMIT" --environment "$TARGET_ENVIRONMENT" --region "$REGION" --slot "$SLOT" --yes'

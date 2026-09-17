@@ -1,0 +1,5 @@
+(
+  @Request[Microsoft.ContainerService/managedClusters/customResources:group] StringEqualsIgnoreCase 'gateway.networking.k8s.io'
+  AND
+  @Request[Microsoft.ContainerService/managedClusters/customResources:kind] StringEqualsIgnoreCase 'gateways'
+)

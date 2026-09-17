@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "tenant_id": "00000000-0000-0000-0000-000000000001",
+  "targets": [
+    {
+      "environment": "pprd",
+      "region": "uks",
+      "slot": "aks01",
+      "subscription_id": "00000000-0000-0000-0000-000000000003",
+      "resource_group": "uks-pprd-example-aks-rg",
+      "cluster_name": "uks-pprd-example-aks01",
+      "approval_environment": "platform-pprd-uks-aks01",
+      "allow_retired_ingress_nginx": true,
+      "namespaces": [
+        "ingress",
+        "platform-demo"
+      ],
+      "manifests": [
+        "manifests/platform-settings.yaml"
+      ],
+      "workload_service_accounts": [
+        {
+          "name": "platform-demo",
+          "namespace": "platform-demo",
+          "client_id": "00000000-0000-0000-0000-000000000201"
+        }
+      ],
+      "releases": [
+        {
+          "name": "nginx-ingress",
+          "namespace": "ingress",
+          "chart": {
+            "name": "ingress-nginx",
+            "version": "4.12.1",
+            "url": "https://github.com/kubernetes/ingress-nginx/releases/download/helm-chart-4.12.1/ingress-nginx-4.12.1.tgz",
+            "sha256": "59f6647b8c0aa12267722fa0ade16713fb0b16a1af932227af2065fdd1a7f3bc"
+          },
+          "values": [
+            "values/aks01.yaml"
+          ],
+          "timeout_seconds": 900
+        }
+      ]
+    },
+    {
+      "environment": "pprd",
+      "region": "uks",
+      "slot": "aks02",
+      "subscription_id": "00000000-0000-0000-0000-000000000003",
+      "resource_group": "uks-pprd-example-aks-rg",
+      "cluster_name": "uks-pprd-example-aks02",
+      "approval_environment": "platform-pprd-uks-aks02",
+      "allow_retired_ingress_nginx": true,
+      "namespaces": [
+        "ingress",
+        "platform-demo"
+      ],
+      "manifests": [
+        "manifests/platform-settings.yaml"
+      ],
+      "workload_service_accounts": [
+        {
+          "name": "platform-demo",
+          "namespace": "platform-demo",
+          "client_id": "00000000-0000-0000-0000-000000000201"
+        }
+      ],
+      "releases": [
+        {
+          "name": "nginx-ingress",
+          "namespace": "ingress",
+          "chart": {
+            "name": "ingress-nginx",
+            "version": "4.12.1",
+            "url": "https://github.com/kubernetes/ingress-nginx/releases/download/helm-chart-4.12.1/ingress-nginx-4.12.1.tgz",
+            "sha256": "59f6647b8c0aa12267722fa0ade16713fb0b16a1af932227af2065fdd1a7f3bc"
+          },
+          "values": [
+            "values/aks02.yaml"
+          ],
+          "timeout_seconds": 900
+        }
+      ]
+    }
+  ]
+}

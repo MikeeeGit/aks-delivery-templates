@@ -1,0 +1,113 @@
+name: Build immutable AKS application image
+on:
+  workflow_call:
+    inputs:
+      template-ref: {type: string, required: true}
+      config: {type: string, default: delivery.apps.json}
+      client-id: {type: string, required: true}
+      build-environment: {type: string, default: image-build}
+      runs-on: {type: string, default: '["ubuntu-24.04"]'}
+    outputs:
+      image-digest:
+        value: ${{ jobs.build.outputs.image_digest }}
+      source-commit:
+        value: ${{ github.sha }}
+permissions: {contents: read}
+jobs:
+  guard:
+    runs-on: ubuntu-24.04
+    outputs:
+      tenant_id: ${{ steps.config.outputs.tenant_id }}
+      subscription_id: ${{ steps.config.outputs.registry_subscription_id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: app
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: MikeeeGit/aks-delivery-templates
+          ref: ${{ inputs.template-ref }}
+          path: templates
+          persist-credentials: false
+      - name: Require private trusted caller before cloud authentication
+        run: python3 templates/scripts/ci_guard.py github
+        env:
+          PRIVATE_REPOSITORY: ${{ github.event.repository.private }}
+          TEMPLATE_REF: ${{ inputs.template-ref }}
+          RUNNER_LABELS: ${{ inputs.runs-on }}
+      - name: Install pinned Python dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/aks-python"
+          "$RUNNER_TEMP/aks-python/bin/pip" install --require-hashes -r templates/requirements.txt
+      - id: config
+        shell: bash
+        env:
+          CONFIG: ${{ inputs.config }}
+        run: '"$RUNNER_TEMP/aks-python/bin/python" templates/scripts/delivery.py validate --source app --config "$CONFIG" --github-output "$GITHUB_OUTPUT"'
+  build:
+    needs: guard
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    environment: ${{ inputs.build-environment }}
+    permissions: {contents: read, id-token: write}
+    outputs:
+      image_digest: ${{ steps.build.outputs.image_digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: app
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: MikeeeGit/aks-delivery-templates
+          ref: ${{ inputs.template-ref }}
+          path: templates
+          persist-credentials: false
+      - name: Install pinned Python dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/aks-python"
+          "$RUNNER_TEMP/aks-python/bin/pip" install --require-hashes -r templates/requirements.txt
+      - name: Recheck protected branch after build approval
+        run: python3 templates/scripts/ci_guard.py github --latest
+        env:
+          PRIVATE_REPOSITORY: ${{ github.event.repository.private }}
+          TEMPLATE_REF: ${{ inputs.template-ref }}
+          RUNNER_LABELS: ${{ inputs.runs-on }}
+          GH_TOKEN: ${{ github.token }}
+      - name: Create a fresh Azure CLI profile
+        run: |
+          set -euo pipefail
+          profile=$(mktemp -d "$RUNNER_TEMP/aks-azure.XXXXXX")
+          test -d "$profile"
+          printf 'AZURE_CONFIG_DIR=%s\n' "$profile" >> "$GITHUB_ENV"
+      - uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ inputs.client-id }}
+          tenant-id: ${{ needs.guard.outputs.tenant_id }}
+          subscription-id: ${{ needs.guard.outputs.subscription_id }}
+      - id: build
+        shell: bash
+        env:
+          CONFIG: ${{ inputs.config }}
+          SOURCE_COMMIT: ${{ github.sha }}
+        run: '"$RUNNER_TEMP/aks-python/bin/python" templates/scripts/delivery.py build --source app --config "$CONFIG" --commit "$SOURCE_COMMIT" --output "$RUNNER_TEMP/release" --github-output "$GITHUB_OUTPUT"'
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: image-release-${{ github.run_id }}
+          path: ${{ runner.temp }}/release/release.json
+          retention-days: 30
+          if-no-files-found: error
+      - name: Retain the private vulnerability report separately
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: image-scan-${{ github.run_id }}
+          path: ${{ runner.temp }}/release/image-scan.json
+          retention-days: 7
+          if-no-files-found: ignore

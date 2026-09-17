@@ -1,0 +1,70 @@
+parameters:
+  - name: stageName
+    type: string
+    default: DeployApplication
+  - name: serviceConnection
+    type: string
+  - name: environment
+    type: string
+  - name: region
+    type: string
+  - name: clusterSlots
+    type: object
+    default: [aks01]
+  - name: deploySequentially
+    type: boolean
+    default: true
+  - name: sourceCommit
+    type: string
+  - name: imageDigest
+    type: string
+  - name: configFile
+    type: string
+    default: delivery.apps.json
+  - name: pool
+    type: object
+    default: {name: aks-private}
+  - name: dependsOn
+    type: object
+    default: []
+  - name: stageVariables
+    type: object
+    default: {}
+stages:
+  - stage: ${{ parameters.stageName }}_Selection
+    dependsOn: ${{ parameters.dependsOn }}
+    jobs:
+      - job: SelectSlots
+        pool: {vmImage: ubuntu-24.04}
+        steps:
+          - checkout: none
+          - bash: |
+              set -euo pipefail
+              python3 - <<'PY'
+              import json,os
+              slots=json.loads(os.environ['SLOTS'])
+              if slots not in [['aks01'],['aks02'],['aks01','aks02'],['aks02','aks01']]:
+                  raise SystemExit('Select one or both unique slots')
+              PY
+            env:
+              SLOTS: ${{ convertToJson(parameters.clusterSlots) }}
+  - ${{ each slot in parameters.clusterSlots }}:
+    - template: deploy.yml
+      parameters:
+        stageName: ${{ parameters.stageName }}_${{ slot }}
+        serviceConnection: ${{ parameters.serviceConnection }}
+        deploymentEnvironment: ${{ parameters.environment }}-${{ parameters.region }}-${{ slot }}
+        environment: ${{ parameters.environment }}
+        region: ${{ parameters.region }}
+        clusterSlot: ${{ slot }}
+        sourceCommit: ${{ parameters.sourceCommit }}
+        imageDigest: ${{ parameters.imageDigest }}
+        configFile: ${{ parameters.configFile }}
+        pool: ${{ parameters.pool }}
+        stageVariables: ${{ parameters.stageVariables }}
+        dependsOn:
+          - ${{ parameters.stageName }}_Selection
+          - ${{ each dependency in parameters.dependsOn }}:
+            - ${{ dependency }}
+          - ${{ if and(parameters.deploySequentially, ne(slot, parameters.clusterSlots[0])) }}:
+            - ${{ parameters.stageName }}_${{ parameters.clusterSlots[0] }}

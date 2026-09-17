@@ -1,0 +1,25 @@
+trigger: none
+pr: none
+parameters:
+  - name: clusterSlots
+    type: object
+    default: [aks01]
+  - name: deploySequentially
+    type: boolean
+    default: true
+resources:
+  repositories:
+    - repository: aksTemplates
+      type: git
+      name: ExampleProject/aks-delivery-templates
+      ref: '0000000000000000000000000000000000000000'
+stages:
+  - template: azure-pipelines/stages/platform-services.yml@aksTemplates
+    parameters:
+      serviceConnection: example-platform-oidc
+      environment: pprd
+      region: uks
+      clusterSlots: ${{ parameters.clusterSlots }}
+      deploySequentially: ${{ parameters.deploySequentially }}
+      configFile: platform.services.json
+      pool: {name: aks-private}

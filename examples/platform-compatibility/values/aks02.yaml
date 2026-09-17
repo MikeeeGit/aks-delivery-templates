@@ -1,0 +1,39 @@
+# Archived ingress-nginx compatibility only: retired controller; explicitly opt in.
+controller:
+  replicaCount: 2
+  ingressClass: nginx
+  ingressClassResource:
+    name: nginx
+    enabled: true
+    default: false
+  nodeSelector:
+    kubernetes.io/os: linux
+  service:
+    type: LoadBalancer
+    externalTrafficPolicy: Local
+    annotations:
+      service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+      service.beta.kubernetes.io/azure-load-balancer-ipv4: "10.81.4.20"
+      service.beta.kubernetes.io/azure-load-balancer-internal-subnet: uks-pprd-aks02
+    loadBalancerSourceRanges:
+      - 10.81.8.0/24
+    ports:
+      http: 80
+      https: 443
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 60
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  config:
+    worker-processes: "4"
+    max-worker-connections: "16384"
+    use-forwarded-headers: "true"
+    proxy-real-ip-cidr: 10.81.8.0/24

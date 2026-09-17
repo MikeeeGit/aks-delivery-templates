@@ -1,0 +1,29 @@
+# Private Azure Repos only; promote an explicit successful build receipt pair.
+trigger: none
+pr: none
+parameters:
+  - name: sourceCommit
+    type: string
+  - name: imageDigest
+    type: string
+  - name: slot
+    type: string
+    default: aks01
+    values: [aks01, aks02]
+resources:
+  repositories:
+    - repository: aksTemplates
+      type: git
+      name: ExampleProject/aks-delivery-templates
+      ref: '0000000000000000000000000000000000000000'
+stages:
+  - template: azure-pipelines/stages/deploy.yml@aksTemplates
+    parameters:
+      serviceConnection: app-deploy-oidc
+      deploymentEnvironment: pprd-uks-${{ parameters.slot }}
+      environment: pprd
+      region: uks
+      clusterSlot: ${{ parameters.slot }}
+      sourceCommit: ${{ parameters.sourceCommit }}
+      imageDigest: ${{ parameters.imageDigest }}
+      pool: {name: aks-private}

@@ -1,0 +1,20 @@
+# Partial certificate CSI example: mounts the public certificate only.
+# This does not synchronize a TLS Secret or install a private key into an ingress controller.
+apiVersion: secrets-store.csi.x-k8s.io/v1
+kind: SecretProviderClass
+metadata:
+  name: platform-demo-public-certificate
+  namespace: platform-demo
+spec:
+  provider: azure
+  parameters:
+    usePodIdentity: "false"
+    clientID: EXAMPLE_APPLICATION_MANAGED_IDENTITY_CLIENT_ID
+    keyvaultName: example-app-vault
+    tenantId: EXAMPLE_TENANT_ID
+    objects: |
+      array:
+        - |
+          objectName: example-public-certificate
+          objectType: cert
+# Grant only the reviewed certificate-read role; configure the pod's CSI mount separately.

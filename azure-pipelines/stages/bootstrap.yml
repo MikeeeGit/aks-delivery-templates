@@ -1,0 +1,109 @@
+parameters:
+  - name: stageName
+    type: string
+    default: BootstrapApplication
+  - name: serviceConnection
+    type: string
+  - name: environment
+    type: string
+  - name: region
+    type: string
+  - name: clusterSlots
+    type: object
+    default: [aks01]
+  - name: configFile
+    type: string
+    default: delivery.apps.json
+  - name: bootstrapConfigFile
+    type: string
+    default: bootstrap.apps.json
+  - name: bootstrapEnvironmentPrefix
+    type: string
+    default: bootstrap
+  - name: pool
+    type: object
+    default: {name: aks-private}
+stages:
+  - stage: ${{ parameters.stageName }}_Guard
+    jobs:
+      - job: Guard
+        pool: {vmImage: ubuntu-24.04}
+        steps:
+          - checkout: self
+            path: s/app
+            persistCredentials: false
+          - checkout: aksTemplates
+            path: s/templates
+            persistCredentials: false
+          - bash: |
+              set -euo pipefail
+              python3 "$(Pipeline.Workspace)/s/templates/scripts/ci_guard.py" azure-devops
+              python3 -m venv "$(Agent.TempDirectory)/aks-python"
+              "$(Agent.TempDirectory)/aks-python/bin/pip" install --require-hashes -r "$(Pipeline.Workspace)/s/templates/requirements.txt"
+              "$(Agent.TempDirectory)/aks-python/bin/python" - <<'PY'
+              import json,os,sys
+              from pathlib import Path
+              sys.path.insert(0,os.environ['TEMPLATES']+'/scripts')
+              import bootstrap
+              slots=json.loads(os.environ['SLOTS'])
+              if slots not in [['aks01'],['aks02'],['aks01','aks02'],['aks02','aks01']]:
+                  raise SystemExit('Select one or both unique slots')
+              for slot in slots:
+                  _,_,settings=bootstrap.configuration(Path(os.environ['APP']),os.environ['CONFIG'],os.environ['BOOTSTRAP_CONFIG'],os.environ['TARGET_ENVIRONMENT'],os.environ['REGION'],slot)
+                  expected='-'.join([os.environ['BOOTSTRAP_PREFIX'],os.environ['TARGET_ENVIRONMENT'],os.environ['REGION'],slot])
+                  if settings['approval_environment'] != expected:
+                      raise SystemExit('Bootstrap approval environment must match the configured Azure environment name')
+              PY
+            env:
+              SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+              TEMPLATES: $(Pipeline.Workspace)/s/templates
+              APP: $(Pipeline.Workspace)/s/app
+              CONFIG: ${{ parameters.configFile }}
+              BOOTSTRAP_CONFIG: ${{ parameters.bootstrapConfigFile }}
+              TARGET_ENVIRONMENT: ${{ parameters.environment }}
+              REGION: ${{ parameters.region }}
+              SLOTS: ${{ convertToJson(parameters.clusterSlots) }}
+              BOOTSTRAP_PREFIX: ${{ parameters.bootstrapEnvironmentPrefix }}
+  - ${{ each slot in parameters.clusterSlots }}:
+    - stage: ${{ parameters.stageName }}_${{ slot }}
+      dependsOn: ${{ parameters.stageName }}_Guard
+      jobs:
+        - deployment: Bootstrap
+          environment: ${{ parameters.bootstrapEnvironmentPrefix }}-${{ parameters.environment }}-${{ parameters.region }}-${{ slot }}
+          pool: ${{ parameters.pool }}
+          strategy:
+            runOnce:
+              deploy:
+                steps:
+                  - download: none
+                  - checkout: self
+                    path: s/app
+                    persistCredentials: false
+                  - checkout: aksTemplates
+                    path: s/templates
+                    persistCredentials: false
+                  - bash: |
+                      set -euo pipefail
+                      python3 -m venv "$(Agent.TempDirectory)/aks-python"
+                      "$(Agent.TempDirectory)/aks-python/bin/pip" install --require-hashes -r "$(Pipeline.Workspace)/s/templates/requirements.txt"
+                      python3 "$(Pipeline.Workspace)/s/templates/scripts/install_tools.py" --directory "$(Agent.TempDirectory)/aks-tools"
+                      python3 "$(Pipeline.Workspace)/s/templates/scripts/ci_guard.py" azure-devops --latest
+                    env:
+                      SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+                  - task: AzureCLI@2
+                    inputs:
+                      azureSubscription: ${{ parameters.serviceConnection }}
+                      scriptType: bash
+                      scriptLocation: inlineScript
+                      visibleAzLogin: false
+                      inlineScript: |
+                        set -euo pipefail
+                        export PATH="$(Agent.TempDirectory)/aks-tools:$PATH"
+                        "$(Agent.TempDirectory)/aks-python/bin/python" "$(Pipeline.Workspace)/s/templates/scripts/bootstrap.py" apply --source "$(Pipeline.Workspace)/s/app" --config "$CONFIG" --bootstrap-config "$BOOTSTRAP_CONFIG" --commit "$SOURCE_COMMIT" --environment "$TARGET_ENVIRONMENT" --region "$REGION" --slot "$SLOT" --yes
+                    env:
+                      CONFIG: ${{ parameters.configFile }}
+                      BOOTSTRAP_CONFIG: ${{ parameters.bootstrapConfigFile }}
+                      SOURCE_COMMIT: $(Build.SourceVersion)
+                      TARGET_ENVIRONMENT: ${{ parameters.environment }}
+                      REGION: ${{ parameters.region }}
+                      SLOT: ${{ slot }}

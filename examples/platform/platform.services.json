@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "tenant_id": "00000000-0000-0000-0000-000000000001",
+  "targets": [
+    {
+      "environment": "pprd",
+      "region": "uks",
+      "slot": "aks01",
+      "subscription_id": "00000000-0000-0000-0000-000000000003",
+      "resource_group": "uks-pprd-example-aks-rg",
+      "cluster_name": "uks-pprd-example-aks01",
+      "approval_environment": "platform-pprd-uks-aks01",
+      "namespaces": [
+        "platform-system"
+      ],
+      "manifests": [
+        "manifests/platform-settings.yaml"
+      ],
+      "workload_service_accounts": [],
+      "releases": [
+        {
+          "name": "platform-demo",
+          "namespace": "platform-system",
+          "chart": {
+            "name": "platform-demo",
+            "version": "0.1.0",
+            "url": "repo:charts/packages/platform-demo-0.1.0.tgz",
+            "sha256": "d5a3e3af0de3fe9f0c262a44bd9f732994547788a03ea444ed4c56f085bc5464"
+          },
+          "values": [
+            "values/aks01.yaml"
+          ],
+          "timeout_seconds": 600
+        }
+      ]
+    },
+    {
+      "environment": "pprd",
+      "region": "uks",
+      "slot": "aks02",
+      "subscription_id": "00000000-0000-0000-0000-000000000003",
+      "resource_group": "uks-pprd-example-aks-rg",
+      "cluster_name": "uks-pprd-example-aks02",
+      "approval_environment": "platform-pprd-uks-aks02",
+      "namespaces": [
+        "platform-system"
+      ],
+      "manifests": [
+        "manifests/platform-settings.yaml"
+      ],
+      "workload_service_accounts": [],
+      "releases": [
+        {
+          "name": "platform-demo",
+          "namespace": "platform-system",
+          "chart": {
+            "name": "platform-demo",
+            "version": "0.1.0",
+            "url": "repo:charts/packages/platform-demo-0.1.0.tgz",
+            "sha256": "d5a3e3af0de3fe9f0c262a44bd9f732994547788a03ea444ed4c56f085bc5464"
+          },
+          "values": [
+            "values/aks02.yaml"
+          ],
+          "timeout_seconds": 600
+        }
+      ]
+    }
+  ]
+}

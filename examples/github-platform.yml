@@ -1,0 +1,24 @@
+name: Platform services
+on:
+  workflow_dispatch:
+    inputs:
+      cluster-slots:
+        type: choice
+        options: ['["aks01"]', '["aks02"]', '["aks01","aks02"]']
+        default: '["aks01"]'
+      deploy-sequentially:
+        type: boolean
+        default: true
+permissions: {contents: read, id-token: write}
+jobs:
+  platform:
+    uses: MikeeeGit/aks-delivery-templates/.github/workflows/platform-services.yml@0000000000000000000000000000000000000000
+    with:
+      template-ref: '0000000000000000000000000000000000000000'
+      config: platform.services.json
+      environment: pprd
+      region: uks
+      cluster-slots: ${{ inputs.cluster-slots }}
+      deploy-sequentially: ${{ inputs.deploy-sequentially }}
+      client-id: ${{ vars.PLATFORM_CLIENT_ID }}
+      runs-on: '["self-hosted","linux","aks-private"]'

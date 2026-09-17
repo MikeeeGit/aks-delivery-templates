@@ -1,0 +1,61 @@
+name: Promote a selected successful image build
+on:
+  workflow_call:
+    inputs:
+      template-ref: {type: string, required: true}
+      config: {type: string, default: delivery.apps.json}
+      build-run-id: {type: string, required: true}
+      build-workflow: {type: string, default: image-build.yml}
+      environment: {type: string, required: true}
+      region: {type: string, required: true}
+      cluster-slots: {type: string, default: '["aks01"]'}
+      deploy-sequentially: {type: boolean, default: true}
+      client-id: {type: string, required: true}
+      runs-on: {type: string, default: '["self-hosted","linux","aks-private"]'}
+permissions: {contents: read, actions: read, id-token: write}
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    permissions: {contents: read, actions: read}
+    outputs:
+      source_commit: ${{ steps.release.outputs.source_commit }}
+      image_digest: ${{ steps.release.outputs.image_digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: MikeeeGit/aks-delivery-templates
+          ref: ${{ inputs.template-ref }}
+          path: templates
+          persist-credentials: false
+      - name: Require trusted private manual caller
+        run: python3 templates/scripts/ci_guard.py github
+        env:
+          PRIVATE_REPOSITORY: ${{ github.event.repository.private }}
+          TEMPLATE_REF: ${{ inputs.template-ref }}
+          RUNNER_LABELS: ${{ inputs.runs-on }}
+      - name: Install verified dependency
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/aks-python"
+          "$RUNNER_TEMP/aks-python/bin/pip" install --require-hashes -r templates/requirements.txt
+      - id: release
+        name: Read the selected successful build receipt
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_RUN_ID: ${{ inputs.build-run-id }}
+          BUILD_WORKFLOW: ${{ inputs.build-workflow }}
+        run: '"$RUNNER_TEMP/aks-python/bin/python" templates/scripts/releases.py github --run-id "$BUILD_RUN_ID" --definition "$BUILD_WORKFLOW" --artifact-name "image-release-$BUILD_RUN_ID" --output "$RUNNER_TEMP/selected-release" --github-output "$GITHUB_OUTPUT"'
+  deploy:
+    needs: release
+    uses: ./.github/workflows/deploy-selected.yml
+    with:
+      template-ref: ${{ inputs.template-ref }}
+      config: ${{ inputs.config }}
+      source-commit: ${{ needs.release.outputs.source_commit }}
+      image-digest: ${{ needs.release.outputs.image_digest }}
+      environment: ${{ inputs.environment }}
+      region: ${{ inputs.region }}
+      cluster-slots: ${{ inputs.cluster-slots }}
+      deploy-sequentially: ${{ inputs.deploy-sequentially }}
+      client-id: ${{ inputs.client-id }}
+      runs-on: ${{ inputs.runs-on }}

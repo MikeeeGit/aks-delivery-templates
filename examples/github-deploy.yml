@@ -1,0 +1,21 @@
+# Copy into a PRIVATE app .github/workflows/. Select the trusted build receipt pair.
+name: Promote application to one AKS slot
+on:
+  workflow_dispatch:
+    inputs:
+      source_commit: {description: Full source SHA from build receipt, required: true, type: string}
+      image_digest: {description: Immutable sha256 digest from build receipt, required: true, type: string}
+      slot: {description: Explicit cluster slot, required: true, type: choice, options: [aks01, aks02]}
+permissions: {contents: read, id-token: write}
+jobs:
+  deploy:
+    uses: MikeeeGit/aks-delivery-templates/.github/workflows/deploy.yml@0000000000000000000000000000000000000000
+    with:
+      template-ref: '0000000000000000000000000000000000000000'
+      client-id: ${{ vars.AZURE_APP_DEPLOY_CLIENT_ID }}
+      source-commit: ${{ inputs.source_commit }}
+      image-digest: ${{ inputs.image_digest }}
+      environment: pprd
+      region: uks
+      cluster-slot: ${{ inputs.slot }}
+      runs-on: '["self-hosted","linux","aks-private"]'

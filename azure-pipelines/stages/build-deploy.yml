@@ -1,0 +1,54 @@
+parameters:
+  - name: stageName
+    type: string
+    default: Application
+  - name: buildServiceConnection
+    type: string
+  - name: deployServiceConnection
+    type: string
+  - name: environment
+    type: string
+  - name: region
+    type: string
+  - name: clusterSlots
+    type: object
+    default: [aks01]
+  - name: deploySequentially
+    type: boolean
+    default: true
+  - name: configFile
+    type: string
+    default: delivery.apps.json
+  - name: buildEnvironment
+    type: string
+    default: image-build
+  - name: buildPool
+    type: object
+    default: {vmImage: ubuntu-24.04}
+  - name: deployPool
+    type: object
+    default: {name: aks-private}
+stages:
+  - template: build.yml
+    parameters:
+      stageName: ${{ parameters.stageName }}_Build
+      serviceConnection: ${{ parameters.buildServiceConnection }}
+      deploymentEnvironment: ${{ parameters.buildEnvironment }}
+      configFile: ${{ parameters.configFile }}
+      pool: ${{ parameters.buildPool }}
+  - template: deploy-selected.yml
+    parameters:
+      stageName: ${{ parameters.stageName }}_Deploy
+      serviceConnection: ${{ parameters.deployServiceConnection }}
+      environment: ${{ parameters.environment }}
+      region: ${{ parameters.region }}
+      clusterSlots: ${{ parameters.clusterSlots }}
+      deploySequentially: ${{ parameters.deploySequentially }}
+      configFile: ${{ parameters.configFile }}
+      pool: ${{ parameters.deployPool }}
+      sourceCommit: $(selectedSourceCommit)
+      imageDigest: $(selectedImageDigest)
+      dependsOn: ['${{ parameters.stageName }}_Build']
+      stageVariables:
+        selectedSourceCommit: $[ stageDependencies.${{ parameters.stageName }}_Build.Build.outputs['Build.receipt.sourceCommit'] ]
+        selectedImageDigest: $[ stageDependencies.${{ parameters.stageName }}_Build.Build.outputs['Build.receipt.imageDigest'] ]

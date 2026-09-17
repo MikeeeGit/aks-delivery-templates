@@ -1,0 +1,128 @@
+parameters:
+  - name: stageName
+    type: string
+    default: DeployApplication
+  - name: serviceConnection
+    type: string
+  - name: deploymentEnvironment
+    type: string
+  - name: environment
+    type: string
+  - name: region
+    type: string
+  - name: clusterSlot
+    type: string
+    values: [aks01, aks02]
+  - name: sourceCommit
+    type: string
+  - name: imageDigest
+    type: string
+  - name: configFile
+    type: string
+    default: delivery.apps.json
+  - name: pool
+    type: object
+    default: {name: aks-private}
+  - name: dependsOn
+    type: object
+    default: []
+  - name: stageVariables
+    type: object
+    default: {}
+stages:
+  - stage: ${{ parameters.stageName }}_Render
+    dependsOn: ${{ parameters.dependsOn }}
+    variables: ${{ parameters.stageVariables }}
+    jobs:
+      - job: Render
+        pool: {vmImage: ubuntu-24.04}
+        steps:
+        - checkout: self
+          path: s/app
+          fetchDepth: 0
+          persistCredentials: false
+        - checkout: aksTemplates
+          path: s/templates
+          persistCredentials: false
+        - bash: |
+            set -euo pipefail
+            python3 "$(Pipeline.Workspace)/s/templates/scripts/ci_guard.py" azure-devops --source "$(Pipeline.Workspace)/s/app" --source-commit "$SOURCE_COMMIT"
+          env:
+            SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+            SOURCE_COMMIT: ${{ parameters.sourceCommit }}
+        - bash: |
+            set -euo pipefail
+            python3 -m venv "$(Agent.TempDirectory)/aks-python"
+            "$(Agent.TempDirectory)/aks-python/bin/pip" install --require-hashes -r "$(Pipeline.Workspace)/s/templates/requirements.txt"
+            python3 "$(Pipeline.Workspace)/s/templates/scripts/install_tools.py" --directory "$(Agent.TempDirectory)/aks-tools"
+          displayName: Install verified delivery clients
+        - bash: |
+            set -euo pipefail
+            export PATH="$(Agent.TempDirectory)/aks-tools:$PATH"
+            "$(Agent.TempDirectory)/aks-python/bin/python" "$(Pipeline.Workspace)/s/templates/scripts/delivery.py" render --source "$(Pipeline.Workspace)/s/app" --config "$CONFIG_FILE" --commit "$SOURCE_COMMIT" --digest "$IMAGE_DIGEST" --environment "$TARGET_ENVIRONMENT" --region "$REGION" --slot "$CLUSTER_SLOT" --output "$BUNDLE"
+            "$(Agent.TempDirectory)/aks-python/bin/python" - <<'PYOUTPUT'
+            import hashlib,json,os
+            from pathlib import Path
+            p=Path(os.environ['BUNDLE'])/'release.json'
+            r=json.loads(p.read_text())
+            if r['target']['approval_environment'] != os.environ['APPROVAL_ENVIRONMENT']:
+                raise SystemExit('Approval environment must match the configured target environment name')
+            print('##vso[task.setvariable variable=receiptSha;isOutput=true]'+hashlib.sha256(p.read_bytes()).hexdigest())
+            PYOUTPUT
+          name: receipt
+          env:
+            CONFIG_FILE: ${{ parameters.configFile }}
+            SOURCE_COMMIT: ${{ parameters.sourceCommit }}
+            IMAGE_DIGEST: ${{ parameters.imageDigest }}
+            TARGET_ENVIRONMENT: ${{ parameters.environment }}
+            REGION: ${{ parameters.region }}
+            CLUSTER_SLOT: ${{ parameters.clusterSlot }}
+            APPROVAL_ENVIRONMENT: ${{ parameters.deploymentEnvironment }}
+            BUNDLE: $(Agent.TempDirectory)/rendered-release
+        - task: PublishPipelineArtifact@1
+          inputs:
+            targetPath: $(Agent.TempDirectory)/rendered-release
+            artifact: rendered-${{ parameters.stageName }}
+  - stage: ${{ parameters.stageName }}
+    dependsOn: ${{ parameters.stageName }}_Render
+    variables:
+      receiptSha: $[ stageDependencies.${{ parameters.stageName }}_Render.Render.outputs['receipt.receiptSha'] ]
+    jobs:
+      - deployment: Deploy
+        environment: ${{ parameters.deploymentEnvironment }}
+        pool: ${{ parameters.pool }}
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+              - download: none
+              - checkout: aksTemplates
+                path: s/templates
+                persistCredentials: false
+              - bash: |
+                  set -euo pipefail
+                  python3 -m venv "$(Agent.TempDirectory)/aks-python"
+                  "$(Agent.TempDirectory)/aks-python/bin/pip" install --require-hashes -r "$(Pipeline.Workspace)/s/templates/requirements.txt"
+                  python3 "$(Pipeline.Workspace)/s/templates/scripts/install_tools.py" --directory "$(Agent.TempDirectory)/aks-tools"
+                displayName: Install verified delivery clients
+              - task: DownloadPipelineArtifact@2
+                inputs:
+                  buildType: current
+                  artifactName: rendered-${{ parameters.stageName }}
+                  targetPath: $(Agent.TempDirectory)/rendered-release
+              - bash: python3 "$(Pipeline.Workspace)/s/templates/scripts/ci_guard.py" azure-devops --latest
+                displayName: Recheck protected branch after environment approval
+                env:
+                  SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+              - task: AzureCLI@2
+                inputs:
+                  azureSubscription: ${{ parameters.serviceConnection }}
+                  scriptType: bash
+                  scriptLocation: inlineScript
+                  visibleAzLogin: false
+                  inlineScript: |
+                    set -euo pipefail
+                    export PATH="$(Agent.TempDirectory)/aks-tools:$PATH"
+                    "$(Agent.TempDirectory)/aks-python/bin/python" "$(Pipeline.Workspace)/s/templates/scripts/delivery.py" deploy --output "$(Agent.TempDirectory)/rendered-release" --receipt-sha256 "$RECEIPT_SHA256" --yes
+                env:
+                  RECEIPT_SHA256: $(receiptSha)

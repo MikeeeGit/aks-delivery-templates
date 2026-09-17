@@ -1,0 +1,12 @@
+# Copy into a PRIVATE app .github/workflows/. Replace both zero SHAs before use.
+name: Build application once
+on: workflow_dispatch
+permissions: {contents: read, id-token: write}
+jobs:
+  build:
+    uses: MikeeeGit/aks-delivery-templates/.github/workflows/build.yml@0000000000000000000000000000000000000000
+    with:
+      template-ref: '0000000000000000000000000000000000000000'
+      client-id: ${{ vars.AZURE_APP_BUILD_CLIENT_ID }}
+      build-environment: image-build
+      runs-on: '["ubuntu-24.04"]'

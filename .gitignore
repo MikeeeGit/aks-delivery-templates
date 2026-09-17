@@ -1,0 +1,17 @@
+.aks-delivery/
+.venv/
+__pycache__/
+*.pyc
+.env
+.env.*
+kubeconfig*
+*.key
+*.pem
+*.pfx
+*.p12
+release.json
+manifest.yaml
+
+*.private.json
+
+*-outputs.json

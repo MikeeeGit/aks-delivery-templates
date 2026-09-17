@@ -1,0 +1,32 @@
+# Envoy Gateway1.9.1; exact images verified against official registry manifests.
+crds:
+  enabled: false
+  gatewayAPI:
+    safeUpgradePolicy:
+      # Explicitly owned by the separately reviewed CRD bundle, not this release.
+      enabled: false
+global:
+  images:
+    envoyGateway:
+      image: docker.io/envoyproxy/gateway@sha256:0049bcb384c591c6a6dd043fe5c9929ef6e74f230e12dd678d2d3701df9b301e
+    envoyProxy:
+      image: docker.io/envoyproxy/envoy@sha256:eb2c01c13125d1629637cb4e4cce7207009fb7cc2c8027f9742758549d15b6f4
+deployment:
+  replicas: 2
+  pod:
+    nodeSelector:
+      kubernetes.io/os: linux
+podDisruptionBudget:
+  minAvailable: 1
+config:
+  envoyGateway:
+    gateway:
+      controllerName: gateway.envoyproxy.io/gatewayclass-controller
+    provider:
+      type: Kubernetes
+      kubernetes:
+        deploy:
+          type: GatewayNamespace
+        watch:
+          type: Namespaces
+          namespaces: [platform-demo]

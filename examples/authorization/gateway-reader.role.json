@@ -1,0 +1,14 @@
+{
+  "Name": "AKS Application Gateway Status Reader",
+  "IsCustom": true,
+  "Description": "Use only with the supplied namespace-scoped conditional assignment; never assign without its condition.",
+  "Actions": [],
+  "NotActions": [],
+  "DataActions": [
+    "Microsoft.ContainerService/managedClusters/customresources/read"
+  ],
+  "NotDataActions": [],
+  "AssignableScopes": [
+    "/subscriptions/00000000-0000-0000-0000-000000000003"
+  ]
+}

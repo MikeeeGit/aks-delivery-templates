@@ -1,0 +1,58 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: envoy-gateway
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: platform-demo-private
+  namespace: platform-demo
+spec:
+  gatewayClassName: envoy-gateway
+  infrastructure:
+    parametersRef:
+      group: gateway.envoyproxy.io
+      kind: EnvoyProxy
+      name: private-proxy
+  listeners:
+    - name: https-web
+      hostname: web.example.test
+      port: 443
+      protocol: HTTPS
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: platform-demo-tls
+      allowedRoutes:
+        namespaces: {from: Same}
+    - name: https-api
+      hostname: api.example.test
+      port: 443
+      protocol: HTTPS
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: platform-demo-tls
+      allowedRoutes:
+        namespaces: {from: Same}
+---
+# Exactly one trusted proxy hop: Azure Application Gateway on the private path.
+# Do not retain this setting if the gateway is directly exposed to clients.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: ClientTrafficPolicy
+metadata:
+  name: application-gateway-client-ip
+  namespace: platform-demo
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: platform-demo-private
+  clientIPDetection:
+    xForwardedFor:
+      numTrustedHops: 1

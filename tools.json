@@ -1,0 +1,17 @@
+{
+  "kubectl": {
+    "version": "1.35.8",
+    "url": "https://dl.k8s.io/release/v1.35.8/bin/linux/amd64/kubectl",
+    "sha256": "874d5e72dbb819f43cff16bcd1e4f8bac5b7f2361fe1e55049b0a6c676fb0cbf"
+  },
+  "helm": {
+    "version": "4.3.0",
+    "url": "https://get.helm.sh/helm-v4.3.0-linux-amd64.tar.gz",
+    "sha256": "86584a54def73570558f66f5111cc53dfed56689637ae32c1201205d494f54fb"
+  },
+  "kubelogin": {
+    "version": "0.2.19",
+    "url": "https://github.com/Azure/kubelogin/releases/download/v0.2.19/kubelogin-linux-amd64.zip",
+    "sha256": "ebaeff02aa899c5cae6a2b954b64fc02738185319df2570f7dc053451efa4b2f"
+  }
+}

@@ -1,0 +1,16 @@
+trigger:
+  branches:
+    include: [main, develop]
+pr: none
+pool: {vmImage: ubuntu-24.04}
+steps:
+  - checkout: self
+    persistCredentials: false
+  - bash: |
+      set -euo pipefail
+      python3 -m venv .venv
+      .venv/bin/pip install --require-hashes -r requirements.txt
+      python3 scripts/install_tools.py --directory "$(Agent.TempDirectory)/aks-tools"
+      export PATH="$(Agent.TempDirectory)/aks-tools:$PATH"
+      .venv/bin/python -m unittest discover -s tests -v
+    displayName: Credential-free delivery tests
