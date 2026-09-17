@@ -1,5 +1,7 @@
 # Verification
 
+For the overall architecture, recorded runtime evidence and development-to-Azure progression, start with [the deployment testing system](deployment-testing-system.md). This page describes the shared library's lower-level checks; the application repository owns the real two-cluster acceptance harnesses.
+
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install --require-hashes -r requirements.txt

@@ -6,6 +6,8 @@ The maintained platform profile installs pinned **Envoy Gateway / Gateway API**,
 
 Choose the [application delivery method](docs/delivery-methods.md): the original direct pipelines or the additive Argo CD option. Argo guides cover [design](docs/argocd-design.md), [deployment](docs/argocd-deployment.md), [operations](docs/argocd-operations.md) and [troubleshooting](docs/argocd-troubleshooting.md).
 
+The [deployment testing system](docs/deployment-testing-system.md) rehearses both methods on two disposable Kubernetes clusters with real images, Envoy and Argo controllers. It explains the verified promotion, rollback and recovery scenarios, the evidence, and the progression from development to an Azure sandbox and live deployment.
+
 Start with the [three-tier guide](docs/three-tier-deployment-system.md), [operator walkthrough](docs/operators-walkthrough.md), [first deployment](docs/getting-started.md) and [platform lifecycle](docs/platform-services.md). [Migration](docs/ingress-migration.md) explains the maintained-controller decision and compatibility limits. [Source provenance](docs/source-provenance.md) accounts for all seven archived template families.
 
 | Entry point | Purpose |

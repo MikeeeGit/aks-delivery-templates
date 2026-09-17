@@ -1,5 +1,7 @@
 # Choose how the application reaches Kubernetes
 
+Both methods are exercised in the [deployment testing system](deployment-testing-system.md), a disposable two-cluster rehearsal with recorded runtime evidence and an explicit path to live Azure qualification.
+
 Kustomize and Argo CD do different jobs. Kustomize builds Kubernetes YAML from a base and environment/cluster overlays. Argo CD reads the desired state from Git, compares it with a cluster, and reconciles it. Argo supports plain YAML, Kustomize and Helm. Using Kustomize with Argo is normal, but it is optional: see the official [Kustomize](https://argo-cd.readthedocs.io/en/stable/user-guide/kustomize/) and [directory](https://argo-cd.readthedocs.io/en/stable/user-guide/directory/) documentation.
 
 This reference provides two application delivery methods. Both use the existing Kustomize source, the same immutable image, slot configuration, manifest validation and HTTPS acceptance contract. Nothing in the original direct method is removed.
