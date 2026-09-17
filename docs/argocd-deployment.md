@@ -123,6 +123,14 @@ git -C "$APP_DIR" diff -- gitops/releases/pprd/uks/aks02
 
 `prepare` checks receipt bytes and release fields; it does not independently query the CI provider. The reusable proposal workflows perform the trusted successful-build selection. A locally invented receipt is not equivalent evidence. Keep the build artifact/scan report and review record.
 
+Normal PR validation should run the committed-folder validator with the pinned shared checkout:
+
+```bash
+"$PYTHON" "$TEMPLATE_DIR/scripts/validate_gitops.py" --source "$APP_DIR"
+```
+
+This checks HEAD's Git objects, including all committed slot folders, manifest/receipt hashes, required passed-build attestations, allowed files and target/path matching. It rejects links and unknown layout. Uncommitted edits are deliberately excluded; commit the proposed files before this check. An empty public template has no releases and is valid. This is integrity validation, not independent authentication of the receipt producer; trusted build selection and protected review remain required.
+
 Commit only the intended slot directory to a normal review branch and merge through the protected PR process. A successful proposal is **not** a deployment. Merging leaves the default Application waiting for an explicit sync.
 
 ## 5. Create the slot Application and sync the reviewed merge

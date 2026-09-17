@@ -32,3 +32,5 @@ GitOps tests render the same committed Kustomize source as direct delivery and c
 The [application's Argo acceptance harness](https://github.com/MikeeeGit/aks-platform-demo/blob/main/docs/TESTING.md) separately runs real Git, Argo, Envoy and application processes on two disposable clusters. Its report must pass before claiming reconciliation, update, rollback, failure recovery, drift repair, HPA and scoped Kubernetes RBAC behavior. It retains fixture limitations; live Azure, private Git authentication, SSO and HA failure tolerance are not inferred.
 
 See [delivery methods](delivery-methods.md) for the distinction between Kustomize rendering and Argo reconciliation.
+
+The standalone `validate_gitops.py --source PRIVATE_APP` checks immutable HEAD Git objects for every committed release. Its regressions cover two slots, wrong target paths, missing/failed build evidence, unknown layout, symlinks and working-tree edits that conceal a committed tamper. An empty release tree is valid for the public template.
