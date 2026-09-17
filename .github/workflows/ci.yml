@@ -2,6 +2,7 @@ name: Credential-free validation
 on:
   push: {branches: [main, develop]}
   pull_request:
+  workflow_dispatch:
 permissions: {contents: read}
 jobs:
   validation:
