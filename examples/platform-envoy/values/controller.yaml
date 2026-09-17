@@ -29,4 +29,6 @@ config:
           type: GatewayNamespace
         watch:
           type: Namespaces
-          namespaces: [platform-demo]
+          # The controller always watches its own namespace; list it explicitly
+          # so the pinned chart also grants all provider cache permissions there.
+          namespaces: [platform-demo, envoy-gateway-system]
