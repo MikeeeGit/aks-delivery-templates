@@ -1,0 +1,76 @@
+parameters:
+  - name: stageName
+    type: string
+    default: ProposeGitOpsRelease
+  - name: buildRunId
+    type: string
+  - name: buildDefinitionId
+    type: string
+  - name: buildArtifact
+    type: string
+    default: image-release-BuildApplication
+  - name: environment
+    type: string
+  - name: region
+    type: string
+  - name: clusterSlot
+    type: string
+  - name: configFile
+    type: string
+    default: delivery.gateway.apps.json
+  - name: approvalEnvironment
+    type: string
+    default: gitops-proposals
+stages:
+  - stage: ${{ parameters.stageName }}
+    jobs:
+      - deployment: Propose
+        environment: ${{ parameters.approvalEnvironment }}
+        pool: {vmImage: ubuntu-24.04}
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: aksTemplates
+                  path: s/templates
+                  persistCredentials: false
+                - bash: python3 "$(Pipeline.Workspace)/s/templates/scripts/ci_guard.py" azure-devops --latest
+                  displayName: Guard the private protected source branch
+                  env:
+                    SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+                - checkout: self
+                  path: s/app
+                  fetchDepth: 0
+                  persistCredentials: false
+                - bash: |
+                    set -euo pipefail
+                    python3 -m venv "$(Agent.TempDirectory)/aks-python"
+                    "$(Agent.TempDirectory)/aks-python/bin/pip" install --require-hashes -r "$(Pipeline.Workspace)/s/templates/requirements.txt"
+                    python3 "$(Pipeline.Workspace)/s/templates/scripts/install_tools.py" --directory "$(Agent.TempDirectory)/aks-tools"
+                    export PATH="$(Agent.TempDirectory)/aks-tools:$PATH"
+                    py="$(Agent.TempDirectory)/aks-python/bin/python"
+                    templates="$(Pipeline.Workspace)/s/templates"
+                    source="$(Pipeline.Workspace)/s/app"
+                    "$py" "$templates/scripts/releases.py" azure-devops --run-id "$BUILD_RUN_ID" --definition "$BUILD_DEFINITION_ID" --artifact-name "$BUILD_ARTIFACT" --output "$SELECTED_RELEASE"
+                    source_commit=$("$py" -c 'import json,sys; print(json.load(open(sys.argv[1]))["source_commit"])' "$SELECTED_RELEASE/release.json")
+                    "$py" "$templates/scripts/ci_guard.py" azure-devops --latest --source "$source" --source-commit "$source_commit"
+                    receipt_sha=$("$py" -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "$SELECTED_RELEASE/release.json")
+                    "$py" "$templates/scripts/gitops.py" prepare --source "$source" --config "$CONFIG" --build-receipt "$SELECTED_RELEASE/release.json" --build-receipt-sha256 "$receipt_sha" --environment "$TARGET_ENVIRONMENT" --region "$TARGET_REGION" --slot "$TARGET_SLOT" --output "$PROPOSAL"
+                    "$py" "$templates/scripts/gitops_pr.py" azure-devops --source "$source" --proposal "$PROPOSAL"
+                  displayName: Select approved image and open one-slot GitOps pull request
+                  env:
+                    SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+                    BUILD_RUN_ID: ${{ parameters.buildRunId }}
+                    BUILD_DEFINITION_ID: ${{ parameters.buildDefinitionId }}
+                    BUILD_ARTIFACT: ${{ parameters.buildArtifact }}
+                    CONFIG: ${{ parameters.configFile }}
+                    TARGET_ENVIRONMENT: ${{ parameters.environment }}
+                    TARGET_REGION: ${{ parameters.region }}
+                    TARGET_SLOT: ${{ parameters.clusterSlot }}
+                    SELECTED_RELEASE: $(Agent.TempDirectory)/selected-release
+                    PROPOSAL: $(Agent.TempDirectory)/gitops-proposal
+                - task: PublishPipelineArtifact@1
+                  inputs:
+                    targetPath: $(Agent.TempDirectory)/gitops-proposal
+                    artifact: gitops-proposal-${{ parameters.clusterSlot }}-$(Build.BuildId)
+                  displayName: Retain the exact proposed release

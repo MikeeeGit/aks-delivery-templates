@@ -1,0 +1,81 @@
+name: Propose an approved image release for Argo CD
+on:
+  workflow_call:
+    inputs:
+      template-ref: {type: string, required: true}
+      config: {type: string, default: delivery.gateway.apps.json}
+      build-run-id: {type: string, required: true}
+      build-workflow: {type: string, default: image-build.yml}
+      environment: {type: string, required: true}
+      region: {type: string, required: true}
+      cluster-slot: {type: string, required: true}
+      approval-environment: {type: string, default: gitops-proposals}
+    secrets:
+      gitops-token:
+        required: true
+        description: Scoped GitHub App installation token or fine-grained PAT; allows PR checks to run.
+permissions: {contents: read, actions: read}
+concurrency:
+  group: gitops-proposal-${{ github.repository }}-${{ inputs.environment }}-${{ inputs.region }}-${{ inputs.cluster-slot }}
+  cancel-in-progress: false
+jobs:
+  propose:
+    runs-on: ubuntu-24.04
+    environment: ${{ inputs.approval-environment }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: MikeeeGit/aks-delivery-templates
+          ref: ${{ inputs.template-ref }}
+          path: templates
+          persist-credentials: false
+      - name: Require a trusted private protected-branch caller
+        run: python3 templates/scripts/ci_guard.py github --latest
+        env:
+          PRIVATE_REPOSITORY: ${{ github.event.repository.private }}
+          TEMPLATE_REF: ${{ inputs.template-ref }}
+          GH_TOKEN: ${{ github.token }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: app
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install pinned renderer and hashed dependency
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/aks-python"
+          "$RUNNER_TEMP/aks-python/bin/pip" install --require-hashes -r templates/requirements.txt
+          python3 templates/scripts/install_tools.py --directory "$RUNNER_TEMP/aks-tools"
+      - name: Select, validate and render one reviewed slot
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRIVATE_REPOSITORY: ${{ github.event.repository.private }}
+          TEMPLATE_REF: ${{ inputs.template-ref }}
+          BUILD_RUN_ID: ${{ inputs.build-run-id }}
+          BUILD_WORKFLOW: ${{ inputs.build-workflow }}
+          CONFIG: ${{ inputs.config }}
+          TARGET_ENVIRONMENT: ${{ inputs.environment }}
+          TARGET_REGION: ${{ inputs.region }}
+          TARGET_SLOT: ${{ inputs.cluster-slot }}
+        run: |
+          set -euo pipefail
+          export PATH="$RUNNER_TEMP/aks-tools:$PATH"
+          py="$RUNNER_TEMP/aks-python/bin/python"
+          "$py" templates/scripts/releases.py github --run-id "$BUILD_RUN_ID" --definition "$BUILD_WORKFLOW" --artifact-name "image-release-$BUILD_RUN_ID" --output "$RUNNER_TEMP/selected-release"
+          source_commit=$("$py" -c 'import json,sys; print(json.load(open(sys.argv[1]))["source_commit"])' "$RUNNER_TEMP/selected-release/release.json")
+          "$py" templates/scripts/ci_guard.py github --latest --source app --source-commit "$source_commit"
+          receipt_sha=$("$py" -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "$RUNNER_TEMP/selected-release/release.json")
+          "$py" templates/scripts/gitops.py prepare --source app --config "$CONFIG" --build-receipt "$RUNNER_TEMP/selected-release/release.json" --build-receipt-sha256 "$receipt_sha" --environment "$TARGET_ENVIRONMENT" --region "$TARGET_REGION" --slot "$TARGET_SLOT" --output "$RUNNER_TEMP/gitops-proposal"
+      - name: Open a review-only pull request
+        env:
+          GH_TOKEN: ${{ secrets.gitops-token }}
+          PRIVATE_REPOSITORY: ${{ github.event.repository.private }}
+          TEMPLATE_REF: ${{ inputs.template-ref }}
+        run: '"$RUNNER_TEMP/aks-python/bin/python" templates/scripts/gitops_pr.py github --source app --proposal "$RUNNER_TEMP/gitops-proposal"'
+      - name: Retain the exact proposed release
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: gitops-proposal-${{ inputs.cluster-slot }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/gitops-proposal/
+          if-no-files-found: error
+          retention-days: 14

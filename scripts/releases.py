@@ -63,7 +63,11 @@ def receipt_from_zip(raw):
             "Invalid release receipt archive",
         )
         data = archive.read(item)
-    value = json.loads(data)
+    return validate_receipt(json.loads(data)), data
+
+
+def validate_receipt(value):
+    """Validate the immutable build receipt independently of its archive transport."""
     need(
         isinstance(value, dict) and value.get("schema_version") == 1,
         "Invalid build receipt schema",
@@ -90,7 +94,7 @@ def receipt_from_zip(raw):
         and re.fullmatch(r"[0-9a-f]{64}", scan["report_sha256"]),
         "Build receipt must attest a passed HIGH/CRITICAL image security gate",
     )
-    return value, data
+    return value
 
 
 def select(platform, run_id, definition, artifact_name, output):

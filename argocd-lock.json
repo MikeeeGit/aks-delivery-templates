@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "version": "v3.5.3",
+  "checked_utc": "2026-09-17",
+  "source": "https://github.com/argoproj/argo-cd/releases/tag/v3.5.3",
+  "manifests": {
+    "evaluation": {
+      "path": "manifests/namespace-install.yaml",
+      "sha256": "df727dfc83666dbcc78dceef969505cf9c1659af774c64f9c08a204b09bd7dba"
+    },
+    "ha": {
+      "path": "manifests/ha/namespace-install.yaml",
+      "sha256": "c49d92826a13dde870ce22a45c0f6b71aa210285fb7a01c5ad061bf59602b076"
+    }
+  },
+  "crds": [
+    {
+      "path": "manifests/crds/application-crd.yaml",
+      "sha256": "5dde0e229249b6b707beb98674c1deae3949d5c319a6c45b9f5a80c99618e40c"
+    },
+    {
+      "path": "manifests/crds/appproject-crd.yaml",
+      "sha256": "ab225266944322750136f1198d93786e4a79a0e43c8d149abfba44da30a3eac8"
+    },
+    {
+      "path": "manifests/crds/applicationset-crd.yaml",
+      "sha256": "7d282054f41ca2b71a22bab04a8caf0000e07e53a62432e6ea292dae5ab4f07d"
+    }
+  ],
+  "images": {
+    "quay.io/argoproj/argocd:v3.5.3": "quay.io/argoproj/argocd@sha256:dd3f47d5a5e4da563a7a398506e892481b358a7cec50abdf320c71aa55904bfa",
+    "ghcr.io/dexidp/dex:v2.45.1": "ghcr.io/dexidp/dex@sha256:8499afd690c437f52301efd2b05b2455da5bd2dfc20332cd697dc9937f808462",
+    "public.ecr.aws/docker/library/redis:8.2.3-alpine": "public.ecr.aws/docker/library/redis@sha256:08ad0b1d280850169a790dba1393ff7a90aef951fc19632cf4d3ce4f78e679ba",
+    "public.ecr.aws/docker/library/haproxy:3.0.8-alpine": "public.ecr.aws/docker/library/haproxy@sha256:e11f034e651603f10a365e5ad5a0321825e18eded9620e40c4f4d6ae58419bfe"
+  },
+  "cli": {
+    "linux_amd64": {
+      "url": "https://github.com/argoproj/argo-cd/releases/download/v3.5.3/argocd-linux-amd64",
+      "sha256": "b860f73f57cbddd993cd446f5236d797c1b1ac8554857b2683d2669f17e765b4"
+    }
+  }
+}
