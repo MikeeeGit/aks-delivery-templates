@@ -25,3 +25,7 @@ Authenticated workflows require a trusted **private consumer repository**, prote
 [AKS Platform Demo](https://github.com/MikeeeGit/aks-platform-demo) includes maintained Gateway API/CSI TLS, retired Ingress compatibility and direct-Service examples. The maintained profile uses separate `.21` candidate frontend addresses while old `.20` frontends can remain during migration. It demonstrates application/controller integration, not a production monitoring stack.
 
 See [GitHub](docs/github.md), [Azure DevOps](docs/azure-devops.md), [configuration](docs/configuration.md), [image security](docs/image-security.md), [promotion](docs/promotion.md) and [testing](docs/testing.md). Python 3.10+, hashed PyYAML, checksum-pinned kubectl/kubelogin/Helm and digest-pinned BuildKit/Trivy are used. Local tests exercise real Helm/Kustomize rendering and real loopback TLS; Azure OIDC, private network, RBAC/CSI and live cloud deployment remain separate qualification gates. [Apache-2.0](LICENSE).
+
+## CI change scope
+
+Markdown-only edits use lightweight required GitHub checks and are excluded from automatic Azure validation builds. Changes to Terraform, application code, scripts, workflow definitions or executable examples still run full validation, including examples stored under docs/. Mixed changes also run full validation. Manual GitHub runs and unknown Git comparison ranges default to full validation.
