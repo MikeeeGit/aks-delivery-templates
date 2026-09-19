@@ -10,10 +10,15 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {persist-credentials: false}
+      - name: Determine validation scope
+        id: scope
+        run: python3 .github/ci_scope.py --source .
       - name: Install hashed test dependency and verified client
+        if: steps.scope.outputs.run-tests == 'true'
         run: |
           python3 -m venv .venv
           .venv/bin/pip install --require-hashes -r requirements.txt
           python3 scripts/install_tools.py --directory "$RUNNER_TEMP/aks-tools"
       - name: Run offline unit and real Kustomize render tests
+        if: steps.scope.outputs.run-tests == 'true'
         run: .venv/bin/python -m unittest discover -s tests -v
