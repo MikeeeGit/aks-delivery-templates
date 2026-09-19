@@ -29,3 +29,5 @@ See [GitHub](docs/github.md), [Azure DevOps](docs/azure-devops.md), [configurati
 ## CI change scope
 
 Markdown-only edits use lightweight required GitHub checks and are excluded from automatic Azure validation builds. Changes to Terraform, application code, scripts, workflow definitions or executable examples still run full validation, including examples stored under docs/. Mixed changes also run full validation. Manual GitHub runs and unknown Git comparison ranges default to full validation.
+
+Manual Azure pipeline runs remain available when a full documentation-release rehearsal is needed.
