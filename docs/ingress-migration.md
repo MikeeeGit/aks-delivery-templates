@@ -1,6 +1,6 @@
 # Migrating ingress-nginx to Gateway API
 
-Decision date: 17 September 2026. This guide describes the public reference implementation and the acceptance work required to use it in an existing estate. It does not claim that an employer's production clusters have been migrated.
+Decision date: 17 September 2026. This guide describes the public reference implementation and the acceptance work required to use it in an existing estate. Existing deployments require the validation and cutover sequence below.
 
 ## Decision and scope
 
@@ -76,11 +76,3 @@ Rollback normally restores the previous healthy traffic target first. Reapplying
 | Application acceptance | Required sessions, uploads, redirects, API behaviour, streaming and data compatibility | Features not included in the acceptance cases |
 
 Do not describe CI files as a successful CI run. Record the run URL, source commits, controller/chart version, test report and acceptance result before claiming that level passed. The local two-cluster runner requires Docker; absence of a runtime is a qualification gap, not a pass.
-
-## Interview explanation
-
-Use the architecture and the actual evidence together:
-
-> “My original platform separated Terraform infrastructure, cluster platform services and application delivery. During the public modernization I identified community ingress-nginx retirement and moved the reference ingress design to Gateway API with Envoy Gateway. I kept the WAF, private cluster endpoints, TLS and immutable dual-cluster promotion. I separated platform-owned listeners from app-owned routes, then designed the migration around validating the inactive cluster before a separately approved traffic switch.”
-
-Follow that with the precise current result: code and render tests completed, Kubernetes acceptance completed, or Azure acceptance completed. Only use past-tense deployment claims for the environments whose run evidence exists. Explain the tradeoff: we own the Envoy upgrade lifecycle in exchange for portable configuration and independent platform releases.

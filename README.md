@@ -1,6 +1,6 @@
 # AKS Delivery Templates
 
-Reusable Azure DevOps and GitHub delivery for a three-tier AKS platform: Terraform infrastructure, independently versioned cluster/platform services, and application releases. Shared scripts preserve the archived environment/region/cluster-slot and Kustomize application pattern. Build an image once, scan its immutable digest, then promote the same successful build to `aks01`, `aks02` or both.
+Reusable Azure DevOps and GitHub delivery for a three-tier AKS platform: Terraform infrastructure, independently versioned cluster/platform services, and application releases. Shared scripts use explicit environment, region and cluster-slot selection with Kustomize application configuration. Build an image once, scan its immutable digest, then promote the same successful build to `aks01`, `aks02` or both.
 
 The maintained platform profile installs pinned **Envoy Gateway / Gateway API**, private per-slot frontends, workload ServiceAccounts and reviewed common manifests. A separate retired NGINX compatibility profile records the original controller settings for migration. Application configuration remains shared Kustomize: configuration/CSI and immutable image rendering feed either approved direct deployment or Argo CD reconciliation of reviewed YAML in Git. Both methods verify rollout and selected-slot Service plus HTTPS Gateway behavior. Application deployment and traffic cutover have separate approvals.
 
@@ -8,7 +8,7 @@ Choose the [application delivery method](docs/delivery-methods.md): the original
 
 The [deployment testing system](docs/deployment-testing-system.md) rehearses both methods on two disposable Kubernetes clusters with real images, Envoy and Argo controllers. It explains the verified promotion, rollback and recovery scenarios, the evidence, and the progression from development to an Azure sandbox and live deployment.
 
-Start with the [three-tier guide](docs/three-tier-deployment-system.md), [operator walkthrough](docs/operators-walkthrough.md), [first deployment](docs/getting-started.md) and [platform lifecycle](docs/platform-services.md). [Migration](docs/ingress-migration.md) explains the maintained-controller decision and compatibility limits. [Source provenance](docs/source-provenance.md) accounts for all seven archived template families.
+Start with the [three-tier guide](docs/three-tier-deployment-system.md), [operator walkthrough](docs/operators-walkthrough.md), [first deployment](docs/getting-started.md) and [platform lifecycle](docs/platform-services.md). [Migration](docs/ingress-migration.md) explains the maintained-controller decision and compatibility limits. [Delivery design and compatibility](docs/source-provenance.md) maps the shared template families to their implementations.
 
 | Entry point | Purpose |
 |---|---|
