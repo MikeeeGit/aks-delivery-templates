@@ -145,8 +145,11 @@ class ArgoBootstrapTests(unittest.TestCase):
         calls = []
         with patch.object(argo, "run", side_effect=lambda args: calls.append(args)), patch.object(
             argo.subprocess, "check_output", return_value="namespace/existing\n"
-        ):
+        ), patch.object(argo, "wait_crd_established") as established:
             argo.apply_bundle(self.output, expected, str(kubeconfig), "kind-explicit")
+        self.assertEqual(established.call_count, 3)
+        self.assertTrue(all(call.args[0][-2:] == ["--context", "kind-explicit"]
+                            for call in established.call_args_list))
         self.assertFalse(any("create" in call for call in calls))
         self.assertTrue(all("--kubeconfig" in call and "--context" in call for call in calls))
         self.assertTrue(all(call[call.index("--context") + 1] == "kind-explicit" for call in calls))
@@ -162,16 +165,48 @@ class ArgoBootstrapTests(unittest.TestCase):
         kubeconfig.write_text("fixture")
         calls = []
 
-        def invoke(args):
-            calls.append(args)
-            if "wait" in args:
-                raise subprocess.CalledProcessError(1, args)
-
-        with patch.object(argo, "run", side_effect=invoke), patch.object(
+        with patch.object(argo, "run", side_effect=lambda args: calls.append(args)), patch.object(
             argo.subprocess, "check_output", return_value="namespace/existing\n"
-        ), self.assertRaises(subprocess.CalledProcessError):
+        ), patch.object(argo, "wait_crd_established", side_effect=ValueError("CRD not established")), self.assertRaises(ValueError):
             argo.apply_bundle(self.output, expected, str(kubeconfig), "kind-explicit")
         self.assertFalse(any("access.yaml" in str(call) or "install.yaml" in str(call) for call in calls))
+
+    def test_crd_initial_absent_and_null_conditions_wait_for_establishment(self):
+        observations = [{}, {"status": {"conditions": None}},
+                        {"status": {"conditions": [{"type": "Established", "status": "False"}]}},
+                        {"status": {"conditions": [{"type": "Established", "status": "True"}]}}]
+        with patch.object(argo.subprocess, "check_output", side_effect=[json.dumps(x) for x in observations]) as read, \
+                patch.object(argo.time, "sleep") as sleep:
+            argo.wait_crd_established(["kubectl", "--context", "explicit"], "applicationsets.argoproj.io", 60)
+        self.assertEqual(read.call_count, 4)
+        self.assertEqual(sleep.call_count, 3)
+        self.assertTrue(all(0 < c.kwargs["timeout"] <= 60 for c in read.call_args_list))
+
+    def test_crd_never_established_has_a_deadline(self):
+        with patch.object(argo.time, "monotonic", side_effect=[0, 0, 0, 1, 1, 2]), \
+                patch.object(argo.time, "sleep"), \
+                patch.object(argo.subprocess, "check_output", return_value='{"status": {}}') as read:
+            with self.assertRaisesRegex(ValueError, "Timed out.*Established"):
+                argo.wait_crd_established(["kubectl"], "applications.argoproj.io", 2)
+        self.assertEqual(read.call_count, 2)
+
+    def test_crd_rejection_or_termination_is_not_retried_as_pending(self):
+        for condition in ({"type": "NamesAccepted", "status": "False", "reason": "NameConflict"},
+                          {"type": "Terminating", "status": "True"}):
+            row = {"status": {"conditions": [condition, {"type": "Established", "status": "True"}]}}
+            with self.subTest(condition=condition), \
+                    patch.object(argo.subprocess, "check_output", return_value=json.dumps(row)), \
+                    patch.object(argo.time, "sleep") as sleep:
+                with self.assertRaisesRegex(ValueError, "cannot become Established"):
+                    argo.wait_crd_established(["kubectl"], "applications.argoproj.io", 60)
+                sleep.assert_not_called()
+
+    def test_crd_api_failure_is_not_hidden_by_polling(self):
+        with patch.object(argo.subprocess, "check_output", side_effect=subprocess.CalledProcessError(1, ["kubectl"])), \
+                patch.object(argo.time, "sleep") as sleep:
+            with self.assertRaises(subprocess.CalledProcessError):
+                argo.wait_crd_established(["kubectl"], "applications.argoproj.io", 60)
+            sleep.assert_not_called()
 
     def test_scope_inputs_and_output_reuse_rejected(self):
         for value in ["argocd", "kube-system", "../outside"]:

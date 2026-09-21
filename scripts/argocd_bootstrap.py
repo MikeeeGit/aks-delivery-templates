@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import time
 import urllib.request
 
 import yaml
@@ -239,6 +240,38 @@ def run(args):
     subprocess.run(args, check=True)
 
 
+def wait_crd_established(base, name, timeout):
+    """Wait through the initial CRD status gap without accepting a failed CRD."""
+    deadline = time.monotonic() + timeout
+    while True:
+        remaining = deadline - time.monotonic()
+        need(remaining > 0, f"Timed out waiting for CRD {name} to become Established")
+        # Newly applied CRDs can have no status.conditions yet. Some kubectl
+        # wait versions reject that initial state instead of continuing to wait.
+        raw = subprocess.check_output(
+            base + ["get", "crd", name, "-o", "json",
+                    f"--request-timeout={min(30, max(1, int(remaining)))}s"],
+            text=True, timeout=remaining,
+        )
+        crd = json.loads(raw)
+        need(not crd.get("metadata", {}).get("deletionTimestamp"),
+             f"CRD {name} is being deleted")
+        status = crd.get("status") or {}
+        need(isinstance(status, dict), f"Invalid CRD status for {name}")
+        conditions = status.get("conditions")
+        if conditions is None:
+            conditions = []
+        need(isinstance(conditions, list) and all(isinstance(c, dict) for c in conditions),
+             f"Invalid CRD conditions for {name}")
+        for condition in conditions:
+            rejected = condition.get("type") == "NamesAccepted" and condition.get("status") == "False"
+            terminating = condition.get("type") == "Terminating" and condition.get("status") == "True"
+            need(not (rejected or terminating), f"CRD {name} cannot become Established: {condition.get('reason', condition.get('type'))}")
+        if any(c.get("type") == "Established" and c.get("status") == "True" for c in conditions):
+            return
+        time.sleep(min(1.0, max(0.0, deadline - time.monotonic())))
+
+
 def apply_bundle(output, expected_sha, kubeconfig, context, timeout=600):
     output = Path(output).resolve()
     receipt = verify(output, expected_sha)
@@ -254,7 +287,7 @@ def apply_bundle(output, expected_sha, kubeconfig, context, timeout=600):
             run(base + ["create", "namespace", namespace])
     run(base + ["apply", "--server-side", "--field-manager=aks-argocd-bootstrap", "-f", str(output / "crds.yaml")])
     for name in ["applications.argoproj.io", "appprojects.argoproj.io", "applicationsets.argoproj.io"]:
-        run(base + ["wait", "--for=condition=Established", f"--timeout={timeout}s", "crd/" + name])
+        wait_crd_established(base, name, timeout)
     # Configure limited cache/RBAC before the controller starts.
     run(base + ["apply", "--server-side", "--field-manager=aks-argocd-bootstrap", "-f", str(output / "access.yaml")])
     run(base + ["apply", "--server-side", "--field-manager=aks-argocd-bootstrap", "-f", str(output / "install.yaml")])
@@ -299,6 +332,6 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except (ValueError, OSError, subprocess.CalledProcessError) as error:
+    except (ValueError, OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
         print(f"Argo bootstrap failed: {error}", file=sys.stderr)
         sys.exit(1)

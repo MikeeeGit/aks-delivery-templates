@@ -76,6 +76,8 @@ Refresh fetches/compares desired state; it is not a sync approval. Under the def
 
 ## Stalled sync, missing CRDs or immutable fields
 
+During a fresh bootstrap, a CRD can exist before its status conditions have been populated. Azure-hosted acceptance exposed a `kubectl wait` failure reporting a nil `.status.conditions` accessor immediately after creation. The maintained bootstrap polls the actual CRD until `Established=True`, with a bounded deadline and request timeout. Missing initial conditions are pending; rejected names, deletion, authentication/API errors and deadline expiry still stop the bootstrap before controllers or application access are applied. Inspect the selected CRD and retained failure output if that gate fails. Kubernetes documents the [delay between CRD creation and API establishment](https://kubernetes.io/docs/tasks/extend-kubernetes/custom-resources/custom-resource-definitions/#create-a-customresourcedefinition).
+
 Look at Application conditions and operation results before retrying. Confirm all platform CRDs were Established before the Application started, and the correct Gateway API/CSI APIs exist. A missing API should be fixed in the platform tier; do not add `SkipDryRunOnMissingResource` globally to hide an incomplete cluster.
 
 An immutable field conflict can indicate an incompatible Service/selector change or adoption of a different resource. Review the diff and design a migration. Do not globally enable Force/Replace or server-side force-conflicts: those options can recreate resources or take ownership away from another controller.
