@@ -9,6 +9,8 @@ import sys
 import tempfile
 import uuid
 
+import native_authorization
+
 from delivery import (
     UUID,
     NAME,
@@ -39,10 +41,12 @@ def configuration(source, config_name, bootstrap_name, environment, region, slot
         selected["approval_environment"] != target["approval_environment"],
         "Bootstrap must use a separate approval environment",
     )
+    mode = selected.get("authorization_mode", "azure_rbac")
+    need(mode in {"azure_rbac", "kubernetes_rbac"}, "Unsupported authorization_mode")
     principals = selected.get("deploy_principal_object_ids", [])
     need(
         isinstance(principals, list)
-        and principals
+        and (principals or mode == "kubernetes_rbac")
         and len(principals) == len(set(principals))
         and all(isinstance(x, str) and UUID.fullmatch(x) for x in principals),
         "Provide unique deployment service-principal object UUIDs, not client IDs",
@@ -55,6 +59,8 @@ def configuration(source, config_name, bootstrap_name, environment, region, slot
         isinstance(selected.get("require_key_vault_csi", True), bool),
         "require_key_vault_csi must be boolean",
     )
+    if mode == "kubernetes_rbac":
+        native_authorization.usernames(selected)
     return app, target, selected
 
 
@@ -69,6 +75,7 @@ def apply(
         app, target, settings = configuration(
             checkout, config_name, bootstrap_name, environment, region, slot
         )
+        mode = settings.get("authorization_mode", "azure_rbac")
         if not yes:
             need(
                 sys.stdin.isatty()
@@ -102,9 +109,9 @@ def apply(
         aad = cluster.get("aadProfile") or {}
         need(
             aad.get("managed") is True
-            and aad.get("enableAzureRbac") is True
+            and aad.get("enableAzureRbac") is (mode == "azure_rbac")
             and aad.get("tenantId", "").lower() == app["tenant_id"].lower(),
-            "Managed Entra and Azure RBAC in the selected tenant are required",
+            "Managed Entra and the selected authorization mode in the selected tenant are required",
         )
         need(
             cluster.get("disableLocalAccounts") is True
@@ -207,6 +214,19 @@ def apply(
             env=env,
         )
         run(base + ["apply", "--validate=strict", "-f", str(manifest)], env=env)
+        if mode == "kubernetes_rbac":
+            for index, resource in enumerate(native_authorization.application_resources(settings, target["namespace"])):
+                authorization = root / f"authorization-{index}.json"
+                authorization.write_text(json.dumps(resource))
+                options = ["--server-side", "--field-manager=aks-delivery-authorization", "--validate=strict"]
+                run(base + ["apply", *options, "--dry-run=server", "-f", str(authorization)], env=env)
+                run(base + ["apply", *options, "-f", str(authorization)], env=env)
+            return {
+                "schema_version": 1, "source_commit": commit, "target": target,
+                "bootstrap_environment": settings["approval_environment"],
+                "namespace": target["namespace"], "authorization_mode": mode,
+                "role_assignments": 0, "role_binding": "aks-delivery-application",
+            }
         for principal in settings["deploy_principal_object_ids"]:
             for role, scope in [
                 (CLUSTER_USER, cluster_id),
@@ -252,7 +272,7 @@ def apply(
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["resolve", "apply"])
+    parser.add_argument("command", choices=["resolve", "apply", "identity"])
     parser.add_argument("--source", type=Path, default=Path.cwd())
     parser.add_argument("--config", default="delivery.apps.json")
     parser.add_argument("--bootstrap-config", default="bootstrap.apps.json")
@@ -262,8 +282,19 @@ def main():
     parser.add_argument("--slot", choices=["aks01", "aks02"], required=True)
     parser.add_argument("--github-output")
     parser.add_argument("--yes", action="store_true")
+    parser.add_argument("--client-id", help="Expected CI client UUID for identity discovery")
+    parser.add_argument("--identity-output", type=Path, help="Create a new private identity record")
     args = parser.parse_args()
-    if args.command == "resolve":
+    if args.command == "identity":
+        need(args.identity_output is not None, "--identity-output is required")
+        app = load_config(args.source, args.config)
+        target = select(app, args.environment, args.region, args.slot)
+        result = native_authorization.discover(app, target, args.client_id)
+        with args.identity_output.open("x") as output:
+            json.dump(result, output, indent=2)
+            output.write("\n")
+        args.identity_output.chmod(0o600)
+    elif args.command == "resolve":
         app, target, settings = configuration(
             args.source,
             args.config,

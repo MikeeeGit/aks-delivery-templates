@@ -1,5 +1,7 @@
 # Conditional AKS application custom-resource authorization (opt-in preview)
 
+A separate [native Kubernetes authorization profile](../../docs/native-azure-authorization.md) supports managed-Entra AKS without this Azure ABAC preview recipe. Select the cluster authorization model explicitly.
+
 This is a separately reviewed operator provisioning example for the Gateway API/CSI profile. It is not run by the application pipeline or namespace bootstrap. As checked on 2026-09-17, Microsoft documents AKS custom-resource ABAC as **preview**. Confirm current feature availability and support for the intended cluster/region before opting in; these files and local tests do not prove Azure authorization works. If preview use is unacceptable, choose and validate a different authorization model before deploying this profile. [Microsoft authorization documentation](https://learn.microsoft.com/en-us/azure/aks/entra-id-authorization#restrict-custom-resource-access-using-abac-conditions-preview).
 
 The application identity already needs the bootstrap's Cluster User role and namespace-scoped RBAC Writer. This adds two conditional assignments at the **same namespace**:

@@ -1,5 +1,7 @@
 # Application delivery contract
 
+For the additive managed-Entra profile with Terraform-owned Azure grants and namespace-scoped Kubernetes RoleBindings, see [native Azure authorization](native-azure-authorization.md). The existing Azure RBAC profile remains available.
+
 Version `delivery.apps.json` with the application; see the [synthetic example](../examples/delivery.apps.json).
 
 | Field | Meaning |
@@ -21,7 +23,7 @@ Build receipts contain source commit, image digest, repository and full image re
 
 Image digests identify bytes. Manual digest/source inputs do not cryptographically prove which source built those bytes. Select the pair from a successful trusted build receipt. Registry attestation/signature verification is not implemented; source ancestry and render checks protect their narrower documented boundaries.
 
-For the demo, verification is `{"service":"platform-demo","port":80,"readiness_path":"/readyz","version_path":"/version"}`. After rollout the helper starts an authenticated loopback-only port-forward to that cluster's Service, requires readiness HTTP200 and a version JSON object whose `slot` and `revision` exactly match the receipt. It rejects redirects and ignores proxy environment variables. This proves the selected application endpoint's declared identity, not the external gateway route or every replica's behavior. Azure RBAC Writer must permit namespace pod port-forward operations. Applications with another response shape need a reviewed adapter or omit this optional check and run their own slot-specific acceptance tests.
+For the demo, verification is `{"service":"platform-demo","port":80,"readiness_path":"/readyz","version_path":"/version"}`. After rollout the helper starts an authenticated loopback-only port-forward to that cluster's Service, requires readiness HTTP200 and a version JSON object whose `slot` and `revision` exactly match the receipt. It rejects redirects and ignores proxy environment variables. This proves the selected application endpoint's declared identity, not the external gateway route or every replica's behavior. The selected application authorization role must permit namespace pod port-forward operations. Applications with another response shape need a reviewed adapter or omit this optional check and run their own slot-specific acceptance tests.
 
 Privileged first-time settings are in the separate [bootstrap.apps.json contract](bootstrap.md); adding bootstrap fields to application overlays cannot obtain cluster-scoped permissions.
 
@@ -31,4 +33,4 @@ For maintained ingress, add `verification.ingress` with `gateway`, `http_routes`
 
 The verifier requires Gateway `Programmed` and every declared matching HTTPRoute parent/listener's `Accepted`/`ResolvedRefs` at the current object generation. It discovers the unique same-namespace Envoy Service by owning-Gateway labels and port-forwards its HTTPS port, with the configured Host and TLS SNI, normal trust validation and exact slot/revision checks. It rejects redirects. This exercises the selected Envoy route; it does not establish actual ILB allocation, Application Gateway configuration, upstream forwarding-header behavior or end-user network reachability. Those need the separate cutover acceptance test.
 
-An allowed renderer kind does not grant cluster API permissions. HTTPRoute/SecretProviderClass need operator-provided custom-resource authorization; CSI also needs workload identity/vault permissions and the add-on. See [bootstrap boundaries](bootstrap.md), [conditional authorization examples](../examples/authorization/README.md) and the independent [platform contract](platform-services.md).
+An allowed renderer kind does not grant cluster API permissions. HTTPRoute/SecretProviderClass need the native bootstrap Role or separately provisioned Azure custom-resource authorization; CSI also needs workload identity/vault permissions and the add-on. See [bootstrap boundaries](bootstrap.md), [conditional authorization examples](../examples/authorization/README.md) and the independent [platform contract](platform-services.md).

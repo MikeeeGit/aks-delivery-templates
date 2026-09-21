@@ -1,16 +1,18 @@
 # Existing cluster to first application deployment
 
+For the additive managed-Entra profile with Terraform-owned Azure grants and namespace-scoped Kubernetes RoleBindings, see [native Azure authorization](native-azure-authorization.md). The existing Azure RBAC profile remains available.
+
 Namespace/RBAC bootstrap is preparation for the second layer between Terraform infrastructure and application delivery. The full second layer also includes independently versioned [platform services](platform-services.md), including the maintained Envoy Gateway profile. Bootstrap itself runs against existing private AKS and does not provision networks, clusters, registries, controllers or external secrets.
 
 The first layer must provide private API DNS/routing from the trusted worker, node egress, registry pull permissions on the kubelet identity, Entra/Azure RBAC, disabled local accounts, OIDC issuer and workload identity. Enable Key Vault CSI in infrastructure if the application uses it. The helper reads and validates those AKS properties before mutation and, when requested, verifies the installed SecretProviderClass CRD. It never uses `--admin` or AKS Run Command.
 
-Create a dedicated bootstrap identity through your normal identity/OIDC administration process. The operator initially grants it `Azure Kubernetes Service Cluster User Role`, `Azure Kubernetes Service RBAC Cluster Admin` on each intended cluster, and permission to create the two scoped role assignments below. Prefer an Azure RBAC Administrator assignment with conditions restricting assignable roles/principals and cluster scopes. Contributor alone cannot assign roles. This initial grant is an operator prerequisite; a pipeline cannot safely grant its own first privileges.
+For the existing Azure RBAC profile, create a dedicated bootstrap identity through your normal identity/OIDC administration process. The operator initially grants it `Azure Kubernetes Service Cluster User Role`, `Azure Kubernetes Service RBAC Cluster Admin` on each intended cluster, and permission to create the two scoped role assignments below. Prefer an Azure RBAC Administrator assignment with conditions restricting assignable roles/principals and cluster scopes. Contributor alone cannot assign roles. This initial grant is an operator prerequisite; a pipeline cannot safely grant its own first privileges.
 
 Use a separate bootstrap approval environment per slot, such as `bootstrap-pprd-uks-aks01`; restrict it to the protected branch, require review and use a dedicated private worker. Configure the actual caller's OIDC subject for each environment. The ordinary deploy identity must not inherit bootstrap permissions. See [GitHub trust](github.md) or [Azure DevOps](azure-devops.md).
 
 Commit [bootstrap.apps.json](../examples/bootstrap.apps.json) beside `delivery.apps.json`. Each selector must exist in the application target map; namespace, tenant, subscription and cluster come only from that map. Replace `deploy_principal_object_ids` with service-principal **object IDs**, not application/client IDs. Set `pod_security_version` to each slot's actual Kubernetes minor (for example `v1.35` and `v1.36` for independently upgraded clusters). The generic example uses `v1.35` for both and must be adapted. `require_key_vault_csi` defaults true; set false for an application with no CSI resources.
 
-The helper applies a single Namespace with `restricted` enforce/audit/warn Pod Security labels pinned to that minor, then creates deterministic role assignments for each declared deployment principal:
+In the existing Azure RBAC profile, the helper applies a single Namespace with `restricted` enforce/audit/warn Pod Security labels pinned to that minor, then creates deterministic role assignments for each declared deployment principal:
 
 | Role | Scope | Public built-in ID |
 |---|---|---|

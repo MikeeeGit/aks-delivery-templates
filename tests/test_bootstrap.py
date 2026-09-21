@@ -13,7 +13,7 @@ class BootstrapTests(unittest.TestCase):
     setUp = test_delivery.DeliveryTests.setUp
     save = test_delivery.DeliveryTests.save
 
-    def prepare(self):
+    def prepare(self, native=False):
         self.settings = dict(
             environment="pprd",
             region="uks",
@@ -23,6 +23,9 @@ class BootstrapTests(unittest.TestCase):
             pod_security_version="v1.35",
             require_key_vault_csi=True,
         )
+        if native:
+            self.settings["authorization_mode"] = "kubernetes_rbac"
+            self.settings["deploy_kubernetes_usernames"] = {self.settings["deploy_principal_object_ids"][0]: "observed-entra-user"}
         self.path = self.root / "bootstrap.apps.json"
         self.path.write_text(
             json.dumps(dict(schema_version=1, targets=[self.settings]))
@@ -51,7 +54,7 @@ class BootstrapTests(unittest.TestCase):
             id=f"/subscriptions/{target['subscription_id']}/resourceGroups/{target['resource_group']}/providers/Microsoft.ContainerService/managedClusters/{target['cluster_name']}",
             provisioningState="Succeeded",
             aadProfile=dict(
-                managed=True, enableAzureRbac=True, tenantId=self.config["tenant_id"]
+                managed=True, enableAzureRbac=not native, tenantId=self.config["tenant_id"]
             ),
             disableLocalAccounts=True,
             apiServerAccessProfile=dict(enablePrivateCluster=True),
@@ -63,6 +66,7 @@ class BootstrapTests(unittest.TestCase):
 
     def execute(self, fail_dry_run=False):
         self.calls = []
+        self.manifests = []
 
         def run(args, **kwargs):
             self.calls.append(args)
@@ -71,7 +75,10 @@ class BootstrapTests(unittest.TestCase):
             if args[:3] == ["az", "aks", "get-credentials"]:
                 Path(args[args.index("--file") + 1]).write_text("synthetic")
             if "--dry-run=server" in args:
-                self.namespace = json.loads(Path(args[-1]).read_text())
+                manifest = json.loads(Path(args[-1]).read_text())
+                self.manifests.append(manifest)
+                if manifest["kind"] == "Namespace":
+                    self.namespace = manifest
                 if fail_dry_run:
                     raise subprocess.CalledProcessError(1, args)
             return ""
@@ -157,6 +164,28 @@ class BootstrapTests(unittest.TestCase):
         self.assertFalse(
             any(args[:3] == ["az", "role", "assignment"] for args in self.calls)
         )
+
+    def test_native_bootstrap_only_mutates_namespace_and_scoped_kubernetes_roles(self):
+        self.prepare(native=True)
+        result = self.execute()
+        self.assertEqual(result["role_assignments"], 0)
+        self.assertEqual([item["kind"] for item in self.manifests], ["Namespace", "Role", "RoleBinding"])
+        self.assertFalse(any(args[:3] == ["az", "role", "assignment"] for args in self.calls))
+        self.assertFalse(any("--admin" in args for args in self.calls))
+        binding = self.manifests[-1]
+        self.assertEqual(binding["subjects"][0]["name"], "observed-entra-user")
+        self.assertEqual(binding["metadata"]["namespace"], "platform-demo")
+        authorization_calls = [args for args in self.calls if "--server-side" in args]
+        self.assertEqual(len(authorization_calls), 4)
+        self.assertTrue(all("--field-manager=aks-delivery-authorization" in args for args in authorization_calls))
+        self.assertFalse(any("--force-conflicts" in args for args in self.calls))
+
+    def test_native_mode_mismatch_stops_before_namespace_mutation(self):
+        self.prepare(native=True)
+        self.cluster["aadProfile"]["enableAzureRbac"] = True
+        with self.assertRaisesRegex(ValueError, "authorization mode"):
+            self.execute()
+        self.assertEqual(len(self.calls), 1)
 
     def test_bootstrap_cannot_reuse_application_approval(self):
         self.prepare()

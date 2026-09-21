@@ -1,0 +1,82 @@
+parameters:
+  - name: stageName
+    type: string
+    default: DiscoverIdentity
+  - name: serviceConnection
+    type: string
+  - name: clientId
+    type: string
+  - name: approvalEnvironment
+    type: string
+  - name: environment
+    type: string
+  - name: region
+    type: string
+  - name: clusterSlot
+    type: string
+    values: [aks01, aks02]
+  - name: configFile
+    type: string
+    default: delivery.gateway.apps.json
+  - name: pool
+    type: object
+    default: {name: aks-private}
+stages:
+  - stage: ${{ parameters.stageName }}_Guard
+    jobs:
+      - job: Guard
+        pool: {vmImage: ubuntu-24.04}
+        steps:
+          - checkout: aksTemplates
+            path: s/templates
+            persistCredentials: false
+          - bash: python3 "$(Pipeline.Workspace)/s/templates/scripts/ci_guard.py" azure-devops
+            env:
+              SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+  - stage: ${{ parameters.stageName }}
+    dependsOn: ${{ parameters.stageName }}_Guard
+    jobs:
+      - deployment: ObserveIdentity
+        environment: ${{ parameters.approvalEnvironment }}
+        pool: ${{ parameters.pool }}
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - download: none
+                - checkout: self
+                  path: s/app
+                  persistCredentials: false
+                - checkout: aksTemplates
+                  path: s/templates
+                  persistCredentials: false
+                - bash: |
+                    set -euo pipefail
+                    python3 -m venv "$(Agent.TempDirectory)/aks-python"
+                    "$(Agent.TempDirectory)/aks-python/bin/pip" install --require-hashes -r "$(Pipeline.Workspace)/s/templates/requirements.txt"
+                    python3 "$(Pipeline.Workspace)/s/templates/scripts/install_tools.py" --directory "$(Agent.TempDirectory)/aks-tools"
+                    python3 "$(Pipeline.Workspace)/s/templates/scripts/ci_guard.py" azure-devops --latest
+                  env:
+                    SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+                - task: AzureCLI@2
+                  inputs:
+                    azureSubscription: ${{ parameters.serviceConnection }}
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    visibleAzLogin: false
+                    inlineScript: |
+                      set -euo pipefail
+                      export PATH="$(Agent.TempDirectory)/aks-tools:$PATH"
+                      record=$(mktemp -d "$(Agent.TempDirectory)/aks-identity-record.XXXXXX")
+                      "$(Agent.TempDirectory)/aks-python/bin/python" "$(Pipeline.Workspace)/s/templates/scripts/bootstrap.py" identity --source "$(Pipeline.Workspace)/s/app" --config "$CONFIG" --environment "$TARGET_ENVIRONMENT" --region "$REGION" --slot "$SLOT" --client-id "$CLIENT_ID" --identity-output "$record/identity.json"
+                      echo "##vso[task.setvariable variable=identityRecordDirectory]$record"
+                  env:
+                    CONFIG: ${{ parameters.configFile }}
+                    TARGET_ENVIRONMENT: ${{ parameters.environment }}
+                    REGION: ${{ parameters.region }}
+                    SLOT: ${{ parameters.clusterSlot }}
+                    CLIENT_ID: ${{ parameters.clientId }}
+                - task: PublishPipelineArtifact@1
+                  inputs:
+                    targetPath: $(identityRecordDirectory)/identity.json
+                    artifact: aks-identity-${{ parameters.stageName }}

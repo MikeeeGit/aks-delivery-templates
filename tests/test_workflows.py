@@ -68,6 +68,24 @@ class WorkflowTests(unittest.TestCase):
             )
         )
 
+    def test_identity_discovery_is_guarded_before_private_authentication(self):
+        workflow = yaml.safe_load((ROOT / ".github/workflows/discover-identity.yml").read_text())
+        guard = workflow["jobs"]["guard"]
+        discovery = workflow["jobs"]["discover"]
+        self.assertEqual(guard["runs-on"], "ubuntu-24.04")
+        self.assertEqual(discovery["needs"], "guard")
+        self.assertEqual(discovery["environment"], "$" + "{{ inputs.approval-environment }}")
+        steps = discovery["steps"]
+        login = next(i for i, item in enumerate(steps) if item.get("uses", "").startswith("azure/login@"))
+        latest = next(i for i, item in enumerate(steps) if "ci_guard.py github --latest" in item.get("run", ""))
+        self.assertLess(latest, login)
+        command = next(item["run"] for item in steps if "bootstrap.py identity" in item.get("run", ""))
+        self.assertIn("--client-id", command)
+        self.assertNotIn("bootstrap.py apply", command)
+        azure = (ROOT / "azure-pipelines/stages/discover-identity.yml").read_text()
+        self.assertIn("bootstrap.py\" identity", azure)
+        self.assertIn("--client-id", azure)
+
     def test_builds_use_trigger_commit_not_user_supplied_revision(self):
         github = (ROOT / ".github/workflows/build.yml").read_text()
         azure = (ROOT / "azure-pipelines/stages/build.yml").read_text()

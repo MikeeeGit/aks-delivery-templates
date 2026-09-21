@@ -1,0 +1,91 @@
+name: Observe a federated CI identity on one AKS slot
+on:
+  workflow_call:
+    inputs:
+      template-ref: {type: string, required: true}
+      config: {type: string, default: delivery.gateway.apps.json}
+      environment: {type: string, required: true}
+      region: {type: string, required: true}
+      cluster-slot: {type: string, required: true}
+      approval-environment: {type: string, required: true}
+      client-id: {type: string, required: true}
+      tenant-id: {type: string, required: true}
+      subscription-id: {type: string, required: true}
+      runs-on: {type: string, default: '["self-hosted","linux","aks-private"]'}
+permissions: {contents: read}
+jobs:
+  guard:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: MikeeeGit/aks-delivery-templates
+          ref: ${{ inputs.template-ref }}
+          path: templates
+          persist-credentials: false
+      - name: Require private protected manual caller before scheduling a private worker
+        run: python3 templates/scripts/ci_guard.py github
+        env:
+          PRIVATE_REPOSITORY: ${{ github.event.repository.private }}
+          TEMPLATE_REF: ${{ inputs.template-ref }}
+          RUNNER_LABELS: ${{ inputs.runs-on }}
+  discover:
+    needs: guard
+    timeout-minutes: 15
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    environment: ${{ inputs.approval-environment }}
+    permissions: {contents: read, id-token: write}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {path: app, persist-credentials: false}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: MikeeeGit/aks-delivery-templates
+          ref: ${{ inputs.template-ref }}
+          path: templates
+          persist-credentials: false
+      - name: Install pinned dependency and verified clients
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/aks-python"
+          "$RUNNER_TEMP/aks-python/bin/pip" install --require-hashes -r templates/requirements.txt
+          python3 templates/scripts/install_tools.py --directory "$RUNNER_TEMP/aks-tools"
+      - name: Recheck protected branch after environment approval
+        run: python3 templates/scripts/ci_guard.py github --latest
+        env:
+          PRIVATE_REPOSITORY: ${{ github.event.repository.private }}
+          TEMPLATE_REF: ${{ inputs.template-ref }}
+          RUNNER_LABELS: ${{ inputs.runs-on }}
+          GH_TOKEN: ${{ github.token }}
+      - name: Isolate Azure profile and output
+        id: paths
+        run: |
+          set -euo pipefail
+          profile=$(mktemp -d "$RUNNER_TEMP/aks-identity-azure.XXXXXX")
+          record=$(mktemp -d "$RUNNER_TEMP/aks-identity-record.XXXXXX")
+          printf 'AZURE_CONFIG_DIR=%s\n' "$profile" >> "$GITHUB_ENV"
+          printf 'record=%s\n' "$record" >> "$GITHUB_OUTPUT"
+      - uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ inputs.client-id }}
+          tenant-id: ${{ inputs.tenant-id }}
+          subscription-id: ${{ inputs.subscription-id }}
+      - name: Observe the authenticated Kubernetes username without granting access
+        env:
+          CONFIG: ${{ inputs.config }}
+          TARGET_ENVIRONMENT: ${{ inputs.environment }}
+          REGION: ${{ inputs.region }}
+          SLOT: ${{ inputs.cluster-slot }}
+          CLIENT_ID: ${{ inputs.client-id }}
+          RECORD_DIRECTORY: ${{ steps.paths.outputs.record }}
+        run: |
+          set -euo pipefail
+          export PATH="$RUNNER_TEMP/aks-tools:$PATH"
+          "$RUNNER_TEMP/aks-python/bin/python" templates/scripts/bootstrap.py identity --source app --config "$CONFIG" --environment "$TARGET_ENVIRONMENT" --region "$REGION" --slot "$SLOT" --client-id "$CLIENT_ID" --identity-output "$RECORD_DIRECTORY/identity.json"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: aks-identity-${{ github.run_id }}-${{ inputs.environment }}-${{ inputs.region }}-${{ inputs.cluster-slot }}
+          path: ${{ steps.paths.outputs.record }}/identity.json
+          retention-days: 1
+          if-no-files-found: error
