@@ -40,6 +40,26 @@ class ImageGateTests(unittest.TestCase):
         self.assertEqual(proof["status"], "passed")
         self.assertEqual(len(proof["report_sha256"]), 64)
 
+    def test_disk_cache_is_private_and_removed_after_success_or_failure(self):
+        for exit_code in (0, 1):
+            observed = []
+            def scan(args, **kwargs):
+                mount = next(x for x in args if x.startswith("type=bind,source=") and x.endswith(",target=/tmp"))
+                cache = Path(mount.split("source=", 1)[1].rsplit(",target=", 1)[0])
+                observed.append(cache)
+                self.assertTrue(cache.is_dir())
+                self.assertEqual(cache.stat().st_mode & 0o777, 0o700)
+                (cache / "database").write_text("temporary data")
+                return self.result(exit_code)
+            with self.subTest(exit_code=exit_code), patch.object(image_scan.subprocess, "run", side_effect=scan):
+                if exit_code:
+                    with self.assertRaisesRegex(ValueError, "security gate failed"):
+                        image_scan.scan_image(self.image, self.config, self.report)
+                else:
+                    image_scan.scan_image(self.image, self.config, self.report)
+            self.assertEqual(len(observed), 1)
+            self.assertFalse(observed[0].exists())
+
     def test_vulnerability_or_scanner_failure_blocks_release(self):
         with patch.object(image_scan.subprocess, "run", return_value=self.result(1, [{"Severity":"CRITICAL"}])):
             with self.assertRaisesRegex(ValueError, "security gate failed"):

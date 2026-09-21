@@ -2,7 +2,7 @@
 
 The protected build pipeline builds the selected source, pushes one unique image, obtains its immutable registry digest, and scans that exact remote image before writing a release receipt. The reference app runs its Node tests inside the Docker build stage; other consumers must retain their own application test gate. The shared build uses the digest-pinned Trivy image in build-tools.json and fails on HIGH or CRITICAL vulnerability findings.
 
-The scanner uses a temporary registry-login directory mounted read-only. It does not receive the Docker socket. Its container has a read-only root filesystem, dropped capabilities and a temporary cache. The runner needs outbound access to the scanner image, vulnerability databases and the selected registry. Scanner download/authentication/time-out errors fail the build; they are not treated as a clean scan.
+The scanner uses a temporary registry-login directory mounted read-only. It does not receive the Docker socket. Its container has a read-only root filesystem, dropped capabilities and an isolated, mode-0700 temporary directory on the Linux runner disk. It runs as the runner UID/GID, with read-only registry credentials, and removes the cache after scanning. Provision sufficient free runner disk for the expanded database and image; a fixed 1 GiB memory filesystem is too small for the current database. The runner needs outbound access to the scanner image, vulnerability databases and the selected registry. Scanner download/authentication/time-out errors fail the build; they are not treated as a clean scan.
 
 ## Build evidence
 
@@ -28,3 +28,5 @@ A manually approved digest deployment is a separate operator path; use the selec
 Review the private report, remediate the dependency/base image, run app tests and create a new image/receipt. A new image has a new digest. Scanner exceptions or an alternative severity policy require an explicit reviewed extension; changing a report's result is not remediation.
 
 Unit tests exercise failure propagation, image/report binding, temporary credential arguments and refusal to produce a receipt after failure. They do not execute Docker or qualify ACR access. Record an actual private build run before claiming that registry authentication, remote scanning and report publication have been tested together.
+
+An actual Azure build exposed database extraction failing with `no space left on device` in the former 1 GiB cache. The build correctly withheld its release receipt. The disk-backed cache addresses that capacity limit; storage exhaustion still fails the scan and must never be bypassed.
