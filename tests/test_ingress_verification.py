@@ -85,6 +85,90 @@ class GatewayStatusTests(unittest.TestCase):
             verification.check_gateway_status(gateway, [route], "demo", "private")
 
 
+class GatewayReadinessPollingTests(unittest.TestCase):
+    def setUp(self):
+        self.base = ["kubectl", "--context", "owned", "--namespace", "demo"]
+        self.settings = dict(ingress=dict(gateway="private", http_routes=["demo"]))
+        self.calls = []
+
+    def verify(self, command):
+        verification.verify_ingress(
+            self.base, {}, self.settings, "aks01", "a" * 40, "demo", command
+        )
+
+    def test_exact_named_get_retries_stale_gateway_and_route_without_watch(self):
+        for stale_kind in ["gateway", "route"]:
+            with self.subTest(stale_kind=stale_kind):
+                self.calls.clear()
+                gateway, route = cluster_status()
+                stale_gateway, stale_route = deepcopy(gateway), deepcopy(route)
+                if stale_kind == "gateway":
+                    stale_gateway["status"]["conditions"][0]["observedGeneration"] = 2
+                else:
+                    stale_route["status"]["parents"][0]["conditions"][0]["observedGeneration"] = 6
+                gateways, routes = iter([stale_gateway, gateway]), iter([stale_route, route])
+
+                def command(args, **kwargs):
+                    self.calls.append(args)
+                    self.assertNotIn("wait", args)
+                    self.assertNotIn("watch", args)
+                    if "gateway.gateway.networking.k8s.io" in args:
+                        self.assertEqual(args, self.base + [
+                            "get", "gateway.gateway.networking.k8s.io", "private",
+                            "--output=json", "--request-timeout=30s",
+                        ])
+                        return json.dumps(next(gateways))
+                    if "httproute.gateway.networking.k8s.io" in args:
+                        self.assertEqual(args, self.base + [
+                            "get", "httproute.gateway.networking.k8s.io", "demo",
+                            "--output=json", "--request-timeout=30s",
+                        ])
+                        return json.dumps(next(routes))
+                    self.assertIn("services", args)
+                    raise RuntimeError("reached-service-verification")
+
+                with patch.object(verification.time, "sleep") as sleep:
+                    with self.assertRaisesRegex(RuntimeError, "reached-service-verification"):
+                        self.verify(command)
+                sleep.assert_called_once_with(2)
+                self.assertEqual(len(self.calls), 5)
+
+    def test_authorization_failure_is_immediate_for_gateway_and_route(self):
+        for denied in ["gateway.gateway.networking.k8s.io", "httproute.gateway.networking.k8s.io"]:
+            with self.subTest(denied=denied):
+                self.calls.clear()
+                gateway, _ = cluster_status()
+
+                def command(args, **kwargs):
+                    self.calls.append(args)
+                    if denied in args:
+                        raise subprocess.CalledProcessError(1, args, stderr="Forbidden")
+                    self.assertIn("gateway.gateway.networking.k8s.io", args)
+                    return json.dumps(gateway)
+
+                with patch.object(verification.time, "sleep") as sleep:
+                    with self.assertRaises(subprocess.CalledProcessError):
+                        self.verify(command)
+                sleep.assert_not_called()
+                self.assertEqual(len(self.calls), 1 if denied.startswith("gateway.") else 2)
+
+    def test_stale_programmed_status_has_bounded_timeout(self):
+        gateway, route = cluster_status()
+        gateway["status"]["conditions"][0]["observedGeneration"] = 2
+
+        def command(args, **kwargs):
+            if "gateway.gateway.networking.k8s.io" in args:
+                return json.dumps(gateway)
+            self.assertIn("httproute.gateway.networking.k8s.io", args)
+            return json.dumps(route)
+
+        with patch.object(verification.time, "monotonic", side_effect=[0, 600]), \
+                patch.object(verification.time, "sleep") as sleep:
+            with self.assertRaisesRegex(ValueError, "Programmed for the current generation"):
+                self.verify(command)
+        sleep.assert_not_called()
+
+
 class RealTLSGatewayTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -168,8 +252,8 @@ class RealTLSGatewayTests(unittest.TestCase):
         gateway, route = cluster_status()
 
         def command(args, **kwargs):
-            if "wait" in args:
-                return ""
+            self.assertNotIn("wait", args)
+            self.assertNotIn("watch", args)
             if "gateway.gateway.networking.k8s.io" in args:
                 return json.dumps(gateway)
             if "httproute.gateway.networking.k8s.io" in args:

@@ -173,17 +173,11 @@ def verify_ingress(
 ):
     ingress = settings["ingress"]
     gateway_name = ingress["gateway"]
-    run_command(
-        base
-        + [
-            "wait",
-            "--for=condition=Programmed",
-            "gateway.gateway.networking.k8s.io/" + gateway_name,
-            "--timeout=600s",
-        ],
-        env=env,
-    )
-    deadline = time.monotonic() + 120
+    # Application delivery can get platform-owned Gateways, but cannot list or
+    # watch them. kubectl wait starts an informer even for one named resource.
+    # Poll exact named GETs instead; command/authentication errors propagate
+    # immediately, and only not-yet-current controller status is retried.
+    deadline = time.monotonic() + 600
     while True:
         gateway = json.loads(
             run_command(
@@ -193,6 +187,7 @@ def verify_ingress(
                     "gateway.gateway.networking.k8s.io",
                     gateway_name,
                     "--output=json",
+                    "--request-timeout=30s",
                 ],
                 env=env,
                 capture=True,
@@ -207,6 +202,7 @@ def verify_ingress(
                         "httproute.gateway.networking.k8s.io",
                         name,
                         "--output=json",
+                        "--request-timeout=30s",
                     ],
                     env=env,
                     capture=True,
