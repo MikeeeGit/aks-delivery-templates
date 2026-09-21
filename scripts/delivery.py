@@ -595,6 +595,95 @@ def verify_bundle(bundle, expected):
     return receipt
 
 
+def _deploy_to_context(bundle, expected, *, kubeconfig, context):
+    """Deploy a verified bundle through an adapter-verified Kubernetes context.
+
+    The Azure CLI path retains its account and user-credential gates. A local
+    adapter must independently prove ownership before invoking this internal API.
+    """
+    receipt = verify_bundle(bundle, expected)
+    target = receipt["target"]
+    kubeconfig = Path(kubeconfig)
+    need(kubeconfig.is_file(), "An isolated kubeconfig file is required")
+    need(
+        isinstance(context, str) and context and not context.startswith("-")
+        and not any(character.isspace() for character in context),
+        "An explicit Kubernetes context is required",
+    )
+    env = dict(os.environ, KUBECONFIG=str(kubeconfig))
+    base = [
+        "kubectl",
+        "--kubeconfig",
+        str(kubeconfig),
+        "--context",
+        context,
+        "--namespace",
+        target["namespace"],
+    ]
+    # default ServiceAccount proves namespace bootstrap without cluster-scoped Namespace privileges.
+    run(base + ["get", "serviceaccount", "default", "--output", "name"], env=env)
+    run(base + ["auth", "can-i", "patch", "deployments"], env=env)
+    verify_bundle(bundle, expected)
+    run(
+        base
+        + [
+            "apply",
+            "--dry-run=server",
+            "--validate=strict",
+            "--filename",
+            str(bundle / "manifest.yaml"),
+        ],
+        env=env,
+    )
+    verify_bundle(bundle, expected)
+    run(
+        base
+        + [
+            "apply",
+            "--validate=strict",
+            "--filename",
+            str(bundle / "manifest.yaml"),
+        ],
+        env=env,
+    )
+    run(
+        base
+        + [
+            "rollout",
+            "status",
+            "deployment/" + target["deployment"],
+            "--timeout=600s",
+        ],
+        env=env,
+    )
+    if target.get("verification"):
+        verify_service(
+            base,
+            env,
+            target["verification"],
+            target["slot"],
+            receipt["source_commit"],
+        )
+        if target["verification"].get("ingress"):
+            verify_bundle(bundle, expected)
+            ca = (
+                bundle / "ingress-ca.pem"
+                if target["verification"]["ingress"].get("ca_file")
+                else None
+            )
+            verify_ingress(
+                base,
+                env,
+                target["verification"],
+                target["slot"],
+                receipt["source_commit"],
+                target["namespace"],
+                run,
+                ca,
+            )
+    return receipt
+
+
 def deploy(bundle, expected, *, yes=False):
     receipt = verify_bundle(bundle, expected)
     target = receipt["target"]
@@ -621,6 +710,8 @@ def deploy(bundle, expected, *, yes=False):
                 target["resource_group"],
                 "--name",
                 target["cluster_name"],
+                "--context",
+                target["cluster_name"],
                 "--file",
                 str(kubeconfig),
                 "--format",
@@ -639,76 +730,9 @@ def deploy(bundle, expected, *, yes=False):
                 str(kubeconfig),
             ]
         )
-        env = dict(os.environ, KUBECONFIG=str(kubeconfig))
-        base = [
-            "kubectl",
-            "--kubeconfig",
-            str(kubeconfig),
-            "--namespace",
-            target["namespace"],
-        ]
-        # default ServiceAccount proves namespace bootstrap without cluster-scoped Namespace privileges.
-        run(base + ["get", "serviceaccount", "default", "--output", "name"], env=env)
-        run(base + ["auth", "can-i", "patch", "deployments"], env=env)
-        verify_bundle(bundle, expected)
-        run(
-            base
-            + [
-                "apply",
-                "--dry-run=server",
-                "--validate=strict",
-                "--filename",
-                str(bundle / "manifest.yaml"),
-            ],
-            env=env,
+        return _deploy_to_context(
+            bundle, expected, kubeconfig=kubeconfig, context=target["cluster_name"],
         )
-        verify_bundle(bundle, expected)
-        run(
-            base
-            + [
-                "apply",
-                "--validate=strict",
-                "--filename",
-                str(bundle / "manifest.yaml"),
-            ],
-            env=env,
-        )
-        run(
-            base
-            + [
-                "rollout",
-                "status",
-                "deployment/" + target["deployment"],
-                "--timeout=600s",
-            ],
-            env=env,
-        )
-        if target.get("verification"):
-            verify_service(
-                base,
-                env,
-                target["verification"],
-                target["slot"],
-                receipt["source_commit"],
-            )
-            if target["verification"].get("ingress"):
-                verify_bundle(bundle, expected)
-                ca = (
-                    bundle / "ingress-ca.pem"
-                    if target["verification"]["ingress"].get("ca_file")
-                    else None
-                )
-                verify_ingress(
-                    base,
-                    env,
-                    target["verification"],
-                    target["slot"],
-                    receipt["source_commit"],
-                    target["namespace"],
-                    run,
-                    ca,
-                )
-    return receipt
 
 
 def outputs(receipt, output, destination=None):

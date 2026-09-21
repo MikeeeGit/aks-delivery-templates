@@ -482,6 +482,137 @@ def verify(bundle, expected):
     return receipt
 
 
+def _apply_to_context(bundle, expected, *, kubeconfig, context, run_directory):
+    """Run the reviewed Kubernetes lifecycle on an adapter-verified context.
+
+    Azure callers authenticate before entering; disposable-cluster callers must
+    verify ownership separately. This is not exposed as an alternative CLI path.
+    """
+    receipt = verify(bundle, expected)
+    target = receipt["target"]
+    kubeconfig, run_directory = Path(kubeconfig), Path(run_directory)
+    need(kubeconfig.is_file(), "An isolated kubeconfig file is required")
+    need(
+        isinstance(context, str) and context and not context.startswith("-")
+        and not any(character.isspace() for character in context),
+        "An explicit Kubernetes context is required",
+    )
+    env = helm_environment(run_directory / "helm")
+    env["KUBECONFIG"] = str(kubeconfig)
+    kubectl = ["kubectl", "--kubeconfig", str(kubeconfig), "--context", context]
+
+    def apply_manifest(name, *, crd=False):
+        path = bundle / name
+        if not path.read_text().strip():
+            return
+        verify(bundle, expected)
+        options = (
+            ["--server-side", "--field-manager=aks-platform-crds"] if crd else []
+        )
+        run(
+            kubectl
+            + [
+                "apply",
+                "--dry-run=server",
+                "--validate=strict",
+                "--filename",
+                str(path),
+            ]
+            + options,
+            env=env,
+        )
+        verify(bundle, expected)
+        run(
+            kubectl
+            + ["apply", "--validate=strict", "--filename", str(path)]
+            + options,
+            env=env,
+        )
+        if crd:
+            run(
+                kubectl
+                + [
+                    "wait",
+                    "--for=condition=Established",
+                    "--timeout=120s",
+                    "--filename",
+                    str(path),
+                ],
+                env=env,
+            )
+
+    # Existing namespaces can carry bootstrap-owned Pod Security labels. Never
+    # apply a name-only namespace over another owner's last-applied metadata.
+    for namespace in target["namespaces"]:
+        existing = run(
+            kubectl
+            + [
+                "get",
+                "namespace",
+                namespace,
+                "--ignore-not-found",
+                "--output=name",
+            ],
+            env=env,
+            capture=True,
+        )
+        if not existing:
+            verify(bundle, expected)
+            run(
+                kubectl + ["create", "namespace", namespace, "--dry-run=server"],
+                env=env,
+            )
+            run(kubectl + ["create", "namespace", namespace], env=env)
+    for filename in receipt.get("crds", []):
+        need(filename in receipt["files"], "Unbound CRD bundle")
+        apply_manifest(filename, crd=True)
+    for filename in receipt.get("crd_policies", []):
+        apply_manifest(filename)
+    apply_manifest("serviceaccounts.yaml")
+    for release in receipt["releases"]:
+        verify(bundle, expected)
+        command = [
+            "helm",
+            "upgrade",
+            "--install",
+            release["name"],
+            str(bundle / release["chart"]),
+            "--namespace",
+            release["namespace"],
+            "--create-namespace",
+            "--kubeconfig",
+            str(kubeconfig),
+            "--kube-context",
+            context,
+            "--wait=watcher",
+            "--wait-for-jobs",
+            "--timeout",
+            str(release["timeout_seconds"]) + "s",
+            "--history-max",
+            "10",
+            "--hide-notes",
+            "--skip-crds",
+        ]
+        for name in release["values"]:
+            command += ["--values", str(bundle / name)]
+        run(command, env=env)
+    apply_manifest("prerequisites.yaml")
+    for namespace in target["namespaces"]:
+        run(
+            kubectl
+            + [
+                "get",
+                "deployments,statefulsets,daemonsets,services",
+                "--namespace",
+                namespace,
+                "--output",
+                "wide",
+            ],
+            env=env,
+        )
+    return receipt
+
+
 def apply(bundle, expected, *, yes=False):
     receipt = verify(bundle, expected)
     target = receipt["target"]
@@ -509,6 +640,8 @@ def apply(bundle, expected, *, yes=False):
                 target["resource_group"],
                 "--name",
                 target["cluster_name"],
+                "--context",
+                target["cluster_name"],
                 "--file",
                 str(kubeconfig),
                 "--format",
@@ -527,118 +660,10 @@ def apply(bundle, expected, *, yes=False):
                 str(kubeconfig),
             ]
         )
-        env = helm_environment(root / "helm")
-        env["KUBECONFIG"] = str(kubeconfig)
-        kubectl = ["kubectl", "--kubeconfig", str(kubeconfig)]
-
-        def apply_manifest(name, *, crd=False):
-            path = bundle / name
-            if not path.read_text().strip():
-                return
-            verify(bundle, expected)
-            options = (
-                ["--server-side", "--field-manager=aks-platform-crds"] if crd else []
-            )
-            run(
-                kubectl
-                + [
-                    "apply",
-                    "--dry-run=server",
-                    "--validate=strict",
-                    "--filename",
-                    str(path),
-                ]
-                + options,
-                env=env,
-            )
-            verify(bundle, expected)
-            run(
-                kubectl
-                + ["apply", "--validate=strict", "--filename", str(path)]
-                + options,
-                env=env,
-            )
-            if crd:
-                run(
-                    kubectl
-                    + [
-                        "wait",
-                        "--for=condition=Established",
-                        "--timeout=120s",
-                        "--filename",
-                        str(path),
-                    ],
-                    env=env,
-                )
-
-        # Existing namespaces can carry bootstrap-owned Pod Security labels. Never
-        # apply a name-only namespace over another owner's last-applied metadata.
-        for namespace in target["namespaces"]:
-            existing = run(
-                kubectl
-                + [
-                    "get",
-                    "namespace",
-                    namespace,
-                    "--ignore-not-found",
-                    "--output=name",
-                ],
-                env=env,
-                capture=True,
-            )
-            if not existing:
-                verify(bundle, expected)
-                run(
-                    kubectl + ["create", "namespace", namespace, "--dry-run=server"],
-                    env=env,
-                )
-                run(kubectl + ["create", "namespace", namespace], env=env)
-        for filename in receipt.get("crds", []):
-            need(filename in receipt["files"], "Unbound CRD bundle")
-            apply_manifest(filename, crd=True)
-        for filename in receipt.get("crd_policies", []):
-            apply_manifest(filename)
-        apply_manifest("serviceaccounts.yaml")
-        for release in receipt["releases"]:
-            verify(bundle, expected)
-            command = [
-                "helm",
-                "upgrade",
-                "--install",
-                release["name"],
-                str(bundle / release["chart"]),
-                "--namespace",
-                release["namespace"],
-                "--create-namespace",
-                "--kubeconfig",
-                str(kubeconfig),
-                "--wait=watcher",
-                "--wait-for-jobs",
-                "--timeout",
-                str(release["timeout_seconds"]) + "s",
-                "--history-max",
-                "10",
-                "--hide-notes",
-                "--skip-crds",
-            ]
-            for name in release["values"]:
-                command += ["--values", str(bundle / name)]
-            run(command, env=env)
-        apply_manifest("prerequisites.yaml")
-        for namespace in target["namespaces"]:
-            run(
-                kubectl
-                + [
-                    "get",
-                    "deployments,statefulsets,daemonsets,services",
-                    "--namespace",
-                    namespace,
-                    "--output",
-                    "wide",
-                ],
-                env=env,
-            )
-    return receipt
+        return _apply_to_context(
+            bundle, expected, kubeconfig=kubeconfig,
+            context=target["cluster_name"], run_directory=root,
+        )
 
 
 def main():

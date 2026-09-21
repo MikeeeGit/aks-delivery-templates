@@ -270,9 +270,88 @@ def apply(
         }
 
 
+
+
+def platform_access(source, config_name, access_name, outputs_name, records_name,
+                    environment, region, slot, *, allow_platform_admin=False, yes=False):
+    """An existing Entra administrator grants/revokes reviewed platform CI access."""
+    need(allow_platform_admin is True, "Platform cluster-admin requires explicit --allow-platform-admin")
+    app = load_config(source, config_name)
+    target = select(app, environment, region, slot)
+    access = json.loads(relative(source, access_name).read_text())
+    need(access.get("schema_version") == 1, "Unsupported platform access schema")
+    selected = select(access, environment, region, slot)
+    need(set(selected) == {"environment", "region", "slot", "platform_principal_keys"},
+         "Platform access targets require only selectors and explicit platform_principal_keys")
+    outputs = json.loads(relative(source, outputs_name).read_text())
+    records = json.loads(relative(source, records_name).read_text())
+    resources = native_authorization.platform_resources(
+        outputs, records, target, app["tenant_id"],
+        platform_principal_keys=selected["platform_principal_keys"],
+        allow_platform_admin=allow_platform_admin,
+    )
+    authorization, cluster_id = native_authorization.platform_contract(outputs, target, app["tenant_id"])
+    if not yes:
+        need(sys.stdin.isatty() and input(
+            f"Reconcile cluster-admin for {len(resources[0]['subjects'])} platform identities on {cluster_id}? "
+            "Type platform-access: "
+        ) == "platform-access", "Platform access cancelled")
+    account(app["tenant_id"], target["subscription_id"])
+    signed_in = json.loads(run(["az", "account", "show", "--output", "json"], capture=True))
+    need((signed_in.get("user") or {}).get("type", "").lower() == "user",
+         "Initial platform access requires an existing Entra operator user, not a CI service principal")
+    azure_target = ["--subscription", target["subscription_id"], "--resource-group",
+                    target["resource_group"], "--name", target["cluster_name"]]
+    cluster = json.loads(run(["az", "aks", "show", *azure_target, "--output", "json"], capture=True))
+    aad = cluster.get("aadProfile") or {}
+    expected_groups = {group.lower() for group in authorization["admin_group_object_ids"]}
+    observed_groups = aad.get("adminGroupObjectIDs") or []
+    need(cluster.get("id", "").lower() == cluster_id.lower()
+         and cluster.get("provisioningState") == "Succeeded", "Actual cluster identity or provisioning mismatch")
+    need(aad.get("managed") is True and aad.get("enableAzureRbac") is False
+         and str(aad.get("tenantId", "")).lower() == app["tenant_id"].lower(),
+         "Actual cluster must use managed-Entra native Kubernetes authorization in the selected tenant")
+    need(isinstance(observed_groups, list)
+         and {str(group).lower() for group in observed_groups} == expected_groups,
+         "Actual Entra administrator groups differ from applied Terraform output")
+    need(cluster.get("disableLocalAccounts") is True
+         and (cluster.get("apiServerAccessProfile") or {}).get("enablePrivateCluster") is True,
+         "Private AKS with local accounts disabled is required")
+    with tempfile.TemporaryDirectory(prefix="aks-platform-access-") as temporary:
+        root = Path(temporary)
+        kubeconfig = root / "kubeconfig"
+        run(["az", "aks", "get-credentials", *azure_target, "--file", str(kubeconfig),
+             "--format", "exec", "--overwrite-existing"])
+        kubeconfig.chmod(0o600)
+        run(["kubelogin", "convert-kubeconfig", "--login", "azurecli", "--kubeconfig", str(kubeconfig)])
+        env = dict(os.environ, KUBECONFIG=str(kubeconfig))
+        base = ["kubectl", "--kubeconfig", str(kubeconfig)]
+        observation = json.loads(run(base + ["auth", "whoami", "--output", "json"], env=env, capture=True))
+        need(observation.get("kind") == "SelfSubjectReview", "Expected the API server's operator SelfSubjectReview")
+        user = observation.get("status", {}).get("userInfo", {})
+        groups = user.get("groups") or []
+        need(isinstance(groups, list) and expected_groups.intersection(str(group).lower() for group in groups),
+             "Operator must be observed as a member of an applied Entra administrator group")
+        need(user.get("username") not in [subject["name"] for subject in resources[0]["subjects"]],
+             "Operator and dedicated platform CI identity must be different")
+        run(base + ["auth", "can-i", "bind", "clusterroles/cluster-admin"], env=env)
+        manifest = root / "platform-access.json"
+        manifest.write_text(json.dumps(resources[0], indent=2) + "\n")
+        options = ["--server-side", "--field-manager=aks-delivery-platform-access", "--validate=strict"]
+        run(base + ["apply", *options, "--dry-run=server", "-f", str(manifest)], env=env)
+        run(base + ["apply", *options, "-f", str(manifest)], env=env)
+    return {
+        "schema_version": 1, "cluster_id": cluster_id, "environment": environment,
+        "region": region, "slot": slot, "authorization_mode": "kubernetes_rbac",
+        "cluster_role_binding": "aks-delivery-platform", "role": "cluster-admin",
+        "platform_principal_keys": selected["platform_principal_keys"],
+        "subject_count": len(resources[0]["subjects"]), "azure_role_assignments_created": 0,
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["resolve", "apply", "identity"])
+    parser.add_argument("command", choices=["resolve", "apply", "identity", "platform-access"])
     parser.add_argument("--source", type=Path, default=Path.cwd())
     parser.add_argument("--config", default="delivery.apps.json")
     parser.add_argument("--bootstrap-config", default="bootstrap.apps.json")
@@ -284,8 +363,18 @@ def main():
     parser.add_argument("--yes", action="store_true")
     parser.add_argument("--client-id", help="Expected CI client UUID for identity discovery")
     parser.add_argument("--identity-output", type=Path, help="Create a new private identity record")
+    parser.add_argument("--platform-access-config", default="platform.access.json")
+    parser.add_argument("--aks-outputs", help="Private applied Terraform output JSON, relative to --source")
+    parser.add_argument("--identity-records", help="Private discovery record list JSON, relative to --source")
+    parser.add_argument("--allow-platform-admin", action="store_true")
     args = parser.parse_args()
-    if args.command == "identity":
+    if args.command == "platform-access":
+        need(args.aks_outputs and args.identity_records, "--aks-outputs and --identity-records are required")
+        result = platform_access(
+            args.source, args.config, args.platform_access_config, args.aks_outputs, args.identity_records,
+            args.environment, args.region, args.slot, allow_platform_admin=args.allow_platform_admin, yes=args.yes,
+        )
+    elif args.command == "identity":
         need(args.identity_output is not None, "--identity-output is required")
         app = load_config(args.source, args.config)
         target = select(app, args.environment, args.region, args.slot)

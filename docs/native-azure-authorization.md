@@ -9,7 +9,7 @@ Select `kubernetes_authorization_mode = "kubernetes_rbac"` in Azure AKS Foundati
 | Identity | Azure rights managed by Terraform | Kubernetes access |
 | --- | --- | --- |
 | Build CI identity | Scoped registry publishing rights | None required |
-| Platform CI identity | Cluster User on its declared slots | Independently reviewed platform privileges; see the initial setup boundary below |
+| Platform CI identity | Cluster User on its declared slots | Optional explicitly reviewed cluster-admin binding from an existing Entra operator; see initial platform access |
 | Application CI identity | Cluster User on its declared slots | Application namespace Role and RoleBinding from bootstrap |
 | Application workload identity | Federated ServiceAccount subjects on both cluster issuers; scoped vault/resource roles | Its ServiceAccount is used by Pods, with no automatic API token mount |
 
@@ -73,7 +73,7 @@ The application's deployer remains a trusted namespace operator. It can deploy P
 
 The first namespace/platform operation requires an already authorized operator. The native AKS Terraform profile declares the Entra administrator group; group membership and the operator's initial Azure permissions must already be administered. The operator uses user credentials to run bootstrap and the existing platform service lifecycle.
 
-The supplied native bootstrap does not grant cluster-admin to a platform pipeline. Native platform CI therefore still needs a separately reviewed, pre-existing Kubernetes authorization arrangement sufficient for its pinned controllers, CRDs and common resources. A Cluster User Azure role only permits obtaining user credentials. It does not authorize Kubernetes writes. Do not enable unattended platform CI until that access has been provisioned and tested. This is an explicit initial setup boundary in the current profile.
+The optional [platform CI bootstrap](platform-ci-bootstrap.md) now closes the coded handoff for a dedicated platform identity: an existing Entra operator validates applied Terraform outputs and observed CI usernames, then explicitly opts in to a consolidated cluster-admin binding on each selected slot. Its authority is broad because platform installation owns controllers, CRDs and authorization resources. Build/application identities cannot be selected. An explicit empty selection revokes this managed binding's subjects. The command never creates Azure grants or uses admin kubeconfig. If this authority is unsuitable, retain an operator-owned platform lifecycle and separately review narrower permissions. Cluster User alone still permits only user-credential retrieval.
 
 ## Reconciliation and migration
 

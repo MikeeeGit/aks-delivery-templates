@@ -106,3 +106,99 @@ def discover(app, target, client_id):
         "subscription_id": target["subscription_id"], "cluster_id": cluster_id,
         "client_id": client_id, "username": username,
     }
+
+
+def platform_contract(wrapped_outputs, delivery_target, tenant_id):
+    """Validate the applied native-AKS target before evaluating privileged access."""
+    def output(name):
+        item = wrapped_outputs.get(name) if isinstance(wrapped_outputs, dict) else None
+        need(isinstance(item, dict) and item.get("sensitive") is False and isinstance(item.get("value"), dict),
+             "Use non-sensitive applied terraform output -json for " + name)
+        return item["value"]
+
+    need(isinstance(tenant_id, str) and UUID.fullmatch(tenant_id), "Expected tenant UUID")
+    context = output("deployment_context")
+    for key in ["environment", "region", "subscription_id"]:
+        need(context.get(key) == delivery_target.get(key), "Applied deployment context mismatch: " + key)
+    need(str(context.get("tenant_id", "")).lower() == tenant_id.lower(), "Applied tenant mismatch")
+    cluster_id = (
+        f"/subscriptions/{delivery_target['subscription_id']}/resourceGroups/"
+        f"{delivery_target['resource_group']}/providers/Microsoft.ContainerService/"
+        f"managedClusters/{delivery_target['cluster_name']}"
+    )
+    authorization = output("delivery_authorization")
+    need(authorization.get("mode") == "kubernetes_rbac", "Native kubernetes_rbac authorization is required")
+    groups = authorization.get("admin_group_object_ids")
+    need(isinstance(groups, list) and groups and all(isinstance(group, str) and UUID.fullmatch(group) for group in groups)
+         and len(set(group.lower() for group in groups)) == len(groups), "Explicit unique Entra administrator group UUIDs are required")
+    declared = authorization.get("targets", {}).get(delivery_target.get("slot"), {})
+    need(str(declared.get("cluster_id", "")).lower() == cluster_id.lower()
+         and declared.get("cluster_name") == delivery_target["cluster_name"]
+         and declared.get("resource_group_name") == delivery_target["resource_group"],
+         "Applied cluster/slot target mismatch")
+    need(isinstance(authorization.get("principals"), dict)
+         and isinstance(authorization.get("cluster_user_assignments"), dict), "Applied CI authorization outputs are required")
+    return authorization, cluster_id
+
+
+def platform_resources(wrapped_outputs, discovery_records_list, delivery_target, tenant_id,
+                       *, platform_principal_keys, allow_platform_admin=False):
+    """Opt-in consolidated binding for only explicitly selected platform principals."""
+    need(allow_platform_admin is True, "Platform cluster-admin requires explicit --allow-platform-admin")
+    authorization, cluster_id = platform_contract(wrapped_outputs, delivery_target, tenant_id)
+    need(isinstance(platform_principal_keys, list)
+         and all(isinstance(key, str) and key for key in platform_principal_keys)
+         and len(set(platform_principal_keys)) == len(platform_principal_keys),
+         "Provide explicit unique platform_principal_keys, or [] to revoke this binding")
+    need(isinstance(discovery_records_list, list)
+         and all(isinstance(record, dict) for record in discovery_records_list),
+         "Identity records must be a list of observed discovery records")
+    names = {}
+    selected_clients = set()
+    for key in platform_principal_keys:
+        principal = authorization["principals"].get(key, {})
+        client_id = principal.get("client_id", "")
+        principal_id = principal.get("principal_id", "")
+        need(principal.get("purpose") == "platform"
+             and isinstance(client_id, str) and UUID.fullmatch(client_id)
+             and isinstance(principal_id, str) and UUID.fullmatch(principal_id)
+             and delivery_target["slot"] in principal.get("clusters", [])
+             and principal.get("namespaces") == [],
+             "Selected principal must be a dedicated platform identity on this slot: " + key)
+        need(client_id.lower() not in selected_clients and principal_id.lower() not in names,
+             "Platform principals must have distinct client and object IDs")
+        for other_key, other in authorization["principals"].items():
+            if other_key != key:
+                need(str(other.get("client_id", "")).lower() != client_id.lower()
+                     and str(other.get("principal_id", "")).lower() != principal_id.lower(),
+                     "Platform identity must not also be declared for another purpose/key")
+        assignment = authorization["cluster_user_assignments"].get(key + "/" + delivery_target["slot"], {})
+        assignment_prefix = cluster_id.lower() + "/providers/microsoft.authorization/roleassignments/"
+        assignment_id = str(assignment.get("id", "")).lower()
+        need(str(assignment.get("principal_id", "")).lower() == principal_id.lower()
+             and str(assignment.get("cluster_id", "")).lower() == cluster_id.lower()
+             and assignment_id.startswith(assignment_prefix)
+             and UUID.fullmatch(assignment_id[len(assignment_prefix):]),
+             "Missing applied Cluster User assignment for selected platform identity")
+        records = [record for record in discovery_records_list
+                   if str(record.get("client_id", "")).lower() == client_id.lower()
+                   and str(record.get("cluster_id", "")).lower() == cluster_id.lower()]
+        need(len(records) == 1, "Exactly one discovery record is required per selected platform identity and cluster")
+        record = records[0]
+        need(record.get("schema_version") == 1 and record.get("kind") == "aks-kubernetes-identity"
+             and str(record.get("tenant_id", "")).lower() == tenant_id.lower()
+             and record.get("subscription_id") == delivery_target["subscription_id"],
+             "Discovery tenant/subscription/schema provenance mismatch")
+        names[principal_id.lower()] = record.get("username")
+        selected_clients.add(client_id.lower())
+    settings = {"platform_principal_object_ids": list(names), "platform_kubernetes_usernames": names}
+    return [{
+        "apiVersion": "rbac.authorization.k8s.io/v1",
+        "kind": "ClusterRoleBinding",
+        "metadata": {
+            "name": "aks-delivery-platform",
+            "labels": {"app.kubernetes.io/managed-by": "aks-delivery-templates"},
+        },
+        "roleRef": {"apiGroup": "rbac.authorization.k8s.io", "kind": "ClusterRole", "name": "cluster-admin"},
+        "subjects": subjects(settings, "platform"),
+    }]
