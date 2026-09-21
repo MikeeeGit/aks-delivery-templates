@@ -153,7 +153,7 @@ class ReleaseTests(unittest.TestCase):
             reason="manual",
         )
         with patch.dict(os.environ, self.env, clear=True), patch.object(
-            releases, "request", side_effect=[build, self.zip()]
+            releases, "request", side_effect=[build, {"name":"image-release-BuildApplication", "resource":{"type":"PipelineArtifact", "downloadUrl":"https://example.artifacts.visualstudio.com/synthetic-project/_apis/artifact/content?format=zip"}}, self.zip()]
         ):
             self.assertEqual(
                 releases.select(
@@ -165,6 +165,28 @@ class ReleaseTests(unittest.TestCase):
                 )["source_commit"],
                 self.commit,
             )
+
+    def test_azure_artifact_url_cannot_send_credentials_to_another_host_or_project(self):
+        self.receipt["producer"]["platform"] = "azure-devops"
+        build = dict(status="completed", result="succeeded", definition=dict(id=12),
+                     repository=dict(id="synthetic-repository"), sourceBranch="refs/heads/main",
+                     sourceVersion=self.commit, reason="manual")
+        urls = [
+            "https://attacker.example/synthetic-project/_apis/artifact/content",
+            "https://example.artifacts.visualstudio.com/other-project/_apis/artifact/content",
+            "https://example.artifacts.visualstudio.com@attacker.example/synthetic-project/_apis/artifact/content",
+            "http://example.artifacts.visualstudio.com/synthetic-project/_apis/artifact/content",
+            "https://dev.azure.com/example/another-project/_apis/build/artifacts",
+        ]
+        for url in urls:
+            artifact = {"name":"image-release-BuildApplication", "resource":{"type":"PipelineArtifact", "downloadUrl":url}}
+            with self.subTest(url=url), patch.dict(os.environ, self.env, clear=True), patch.object(
+                releases, "request", side_effect=[build, artifact]
+            ) as call:
+                with self.assertRaisesRegex(ValueError, "outside the selected Azure project"):
+                    releases.select("azure-devops", "42", "12", artifact["name"], self.output)
+                self.assertEqual(call.call_count, 2)
+                self.assertFalse((self.output / "release.json").exists())
 
     def test_azure_other_repository_rejected_before_artifact(self):
         build = dict(

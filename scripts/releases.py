@@ -197,13 +197,29 @@ def select(platform, run_id, definition, artifact_name, output):
             "Selected build must use the protected branch",
         )
         query = urllib.parse.urlencode(
-            {"artifactName": artifact_name, "api-version": "7.1", "$format": "zip"}
+            {"artifactName": artifact_name, "api-version": "7.1"}
         )
-        raw = request(
+        artifact = request(
             base + "/_apis/build/builds/" + str(run_id) + "/artifacts?" + query,
             auth,
-            archive=True,
         )
+        need(artifact.get("name") == artifact_name
+             and artifact.get("resource", {}).get("type") in {"PipelineArtifact", "Container"},
+             "Selected build returned a different or unsupported artifact")
+        url = artifact["resource"].get("downloadUrl", "")
+        location = urllib.parse.urlsplit(url)
+        origin = urllib.parse.urlsplit(base)
+        project = urllib.parse.quote(os.environ["SYSTEM_TEAMPROJECTID"], safe="")
+        same_project = (location.netloc == origin.netloc
+                        and location.path.startswith(origin.path + "/_apis/"))
+        artifact_service = (bool(location.hostname)
+                            and location.hostname.endswith(".artifacts.visualstudio.com")
+                            and location.path.startswith("/" + project + "/"))
+        need(location.scheme == "https" and location.port in (None, 443)
+             and not location.username and not location.password and not location.fragment
+             and (same_project or artifact_service),
+             "Artifact download URL is outside the selected Azure project")
+        raw = request(url, auth, archive=True)
         commit = run["sourceVersion"]
     receipt, data = receipt_from_zip(raw)
     need(

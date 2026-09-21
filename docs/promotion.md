@@ -17,3 +17,6 @@ Keep the previous slot healthy through the observation/rollback period. Revertin
 Deployments serialize per selected GitHub target; Azure environments require exclusive locks. Apply is not transactional. A dry-run succeeds before the actual apply, but admission/network failures can still leave partial changes. Inspect the state after failure and repeat a reviewed operation. Removed manifest objects are not pruned automatically; deletion and namespace retirement are explicit operator work.
 
 ConfigMap changes are declarative. Applications that need a restart must encode a pod-template change or configuration checksum in source; the helper does not conceal an unconditional restart. A maintenance page is another reviewed application/traffic configuration, not an automatic cluster-wide switch.
+
+
+Azure DevOps Pipeline Artifacts are resolved through the selected successful build's artifact metadata and its validated download URL. The build-artifact REST endpoint can return JSON metadata even when a ZIP format is requested. Promotion checks the artifact name/type, restricts credentialed downloads to the selected project on Azure-owned endpoints, and requires a ZIP containing only the bound release receipt. Signed storage redirects receive no CI token.
