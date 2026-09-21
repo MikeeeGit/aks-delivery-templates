@@ -168,6 +168,64 @@ class LoopbackTLS(http.client.HTTPSConnection):
             raise
 
 
+def _verify_ingress_responses(port, context, settings, slot, revision):
+    """Require three complete stable sweeps after bounded proxy convergence.
+
+    Only a valid full source SHA from the expected slot may lag a rollout. TLS,
+    transport, HTTP, JSON and wrong-slot failures must never become retries.
+    """
+    deadline = time.monotonic() + 120
+    consecutive = 0
+    last_stale_revision = None
+
+    def remaining_time():
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            detail = " Last observed stale revision: " + last_stale_revision if last_stale_revision else ""
+            raise ValueError(
+                "Selected HTTPS Gateway did not converge to the selected slot and source revision "
+                "for three complete consecutive verification sweeps within 120 seconds." + detail
+            )
+        return remaining
+
+    while True:
+        sweep_current = True
+        for hostname in settings["ingress"]["hosts"]:
+            for path in [settings["readiness_path"], settings["version_path"]]:
+                connection = LoopbackTLS(
+                    hostname, port=port, timeout=min(20, remaining_time()), context=context
+                )
+                try:
+                    connection.request("GET", path, headers={"Host": hostname})
+                    response = connection.getresponse()
+                    if response.status != 200:
+                        raise ValueError(
+                            "Selected HTTPS Gateway route did not return HTTP200; redirects are rejected"
+                        )
+                    data = response.read(65537)
+                    if len(data) > 65536:
+                        raise ValueError("Gateway verification response is too large")
+                    if path == settings["version_path"]:
+                        value = json.loads(data)
+                        if not isinstance(value, dict) or value.get("slot") != slot:
+                            raise ValueError("Gateway response does not match the selected slot and source revision")
+                        observed = value.get("revision")
+                        if not isinstance(observed, str) or not re.fullmatch(r"[0-9a-f]{40}", observed):
+                            raise ValueError("Gateway response contains a malformed source revision")
+                        if observed != revision:
+                            sweep_current = False
+                            last_stale_revision = observed
+                        else:
+                            check_identity(value, slot, revision)
+                finally:
+                    connection.close()
+        remaining_time()
+        consecutive = consecutive + 1 if sweep_current else 0
+        if consecutive == 3:
+            return
+        time.sleep(min(2, remaining_time()))
+
+
 def verify_ingress(
     base, env, settings, slot, revision, namespace, run_command, ca_file=None
 ):
@@ -236,22 +294,4 @@ def verify_ingress(
         )
     context = ssl.create_default_context(cafile=str(ca_file) if ca_file else None)
     with port_forward(base, env, services[0]["metadata"]["name"], 443) as port:
-        for hostname in ingress["hosts"]:
-            for path in [settings["readiness_path"], settings["version_path"]]:
-                connection = LoopbackTLS(
-                    hostname, port=port, timeout=20, context=context
-                )
-                try:
-                    connection.request("GET", path, headers={"Host": hostname})
-                    response = connection.getresponse()
-                    if response.status != 200:
-                        raise ValueError(
-                            "Selected HTTPS Gateway route did not return HTTP200; redirects are rejected"
-                        )
-                    data = response.read(65537)
-                    if len(data) > 65536:
-                        raise ValueError("Gateway verification response is too large")
-                    if path == settings["version_path"]:
-                        check_identity(json.loads(data), slot, revision)
-                finally:
-                    connection.close()
+        _verify_ingress_responses(port, context, settings, slot, revision)

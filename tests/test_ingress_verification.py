@@ -213,7 +213,11 @@ class RealTLSGatewayTests(unittest.TestCase):
                         "Location", "https://must-never-be-contacted.invalid/version"
                     )
                 self.end_headers()
-                self.wfile.write(json.dumps(cls.identity).encode())
+                identity = cls.identity
+                if self.path == "/version" and cls.version_sequence:
+                    identity = cls.version_sequence.pop(0)
+                data = cls.raw_response if cls.raw_response is not None else json.dumps(identity).encode()
+                self.wfile.write(data)
 
             def log_message(self, *args):
                 pass
@@ -238,6 +242,10 @@ class RealTLSGatewayTests(unittest.TestCase):
         type(self).sni.clear()
         type(self).status = 200
         type(self).identity = {"slot": "aks01", "revision": "a" * 40}
+        type(self).version_sequence = []
+        type(self).raw_response = None
+        self.clock = 0
+        self.sleeps = []
         self.settings = dict(
             readiness_path="/readyz",
             version_path="/version",
@@ -271,7 +279,13 @@ class RealTLSGatewayTests(unittest.TestCase):
             self.assertEqual((name, port), ("generated-envoy-service", 443))
             yield self.server.server_port
 
-        with patch.object(verification, "port_forward", forward):
+        def sleep(seconds):
+            self.sleeps.append(seconds)
+            self.clock += seconds
+
+        with patch.object(verification, "port_forward", forward), \
+                patch.object(verification.time, "monotonic", side_effect=lambda: self.clock), \
+                patch.object(verification.time, "sleep", side_effect=sleep):
             verification.verify_ingress(
                 ["kubectl", "--namespace", "demo"],
                 {},
@@ -291,37 +305,86 @@ class RealTLSGatewayTests(unittest.TestCase):
                 (host, path)
                 for host in ["web.example.test", "api.example.test"]
                 for path in ["/readyz", "/version"]
-            ],
+            ] * 3,
         )
-        self.assertEqual(self.sni, ["web.example.test"] * 2 + ["api.example.test"] * 2)
+        self.assertEqual(self.sni, (["web.example.test"] * 2 + ["api.example.test"] * 2) * 3)
+        self.assertEqual(self.sleeps, [2, 2])
 
     def test_wrong_hostname_rejected(self):
         self.settings["ingress"]["hosts"] = ["wrong.example.test"]
         with self.assertRaises(ssl.SSLCertVerificationError):
             self.verify()
         self.assertEqual(self.requests, [])
+        self.assertEqual(self.sleeps, [])
 
     def test_untrusted_certificate_rejected(self):
         with self.assertRaises(ssl.SSLCertVerificationError):
             self.verify(trusted=False)
         self.assertEqual(self.requests, [])
+        self.assertEqual(self.sleeps, [])
 
-    def test_wrong_slot_and_revision_rejected(self):
-        for field, value in [("slot", "aks02"), ("revision", "b" * 40)]:
-            with self.subTest(field=field):
-                type(self).identity = {
-                    "slot": "aks01",
-                    "revision": "a" * 40,
-                    field: value,
-                }
-                with self.assertRaisesRegex(ValueError, "slot and source revision"):
+    def test_wrong_slot_rejected_without_retry(self):
+        type(self).identity = {"slot": "aks02", "revision": "a" * 40}
+        with self.assertRaisesRegex(ValueError, "slot and source revision"):
+            self.verify()
+        self.assertEqual(self.sleeps, [])
+        self.assertEqual(len(self.requests), 2)
+
+    def test_valid_old_revision_converges_to_three_complete_current_sweeps(self):
+        old = {"slot": "aks01", "revision": "b" * 40}
+        current = {"slot": "aks01", "revision": "a" * 40}
+        type(self).version_sequence = [old, old] + [current] * 6
+        self.verify()
+        self.assertEqual(self.version_sequence, [])
+        self.assertEqual(len(self.requests), 16)
+        self.assertEqual(self.sleeps, [2, 2, 2])
+
+    def test_one_lagging_host_resets_consecutive_whole_sweeps(self):
+        old = {"slot": "aks01", "revision": "b" * 40}
+        current = {"slot": "aks01", "revision": "a" * 40}
+        type(self).version_sequence = [current, current, current, old] + [current] * 6
+        self.verify()
+        self.assertEqual(self.version_sequence, [])
+        self.assertEqual(len(self.requests), 20)
+        self.assertEqual(self.sleeps, [2, 2, 2, 2])
+
+    def test_stale_revision_forever_fails_at_bounded_deadline(self):
+        type(self).identity = {"slot": "aks01", "revision": "b" * 40}
+        with self.assertRaisesRegex(ValueError, "within 120 seconds") as error:
+            self.verify()
+        self.assertIn("b" * 40, str(error.exception))
+        self.assertEqual(self.clock, 120)
+        self.assertEqual(len(self.requests), 240)
+
+    def test_malformed_revision_json_or_nonobject_is_not_retried(self):
+        for identity, raw in [
+            ({"slot": "aks01", "revision": "not-a-source-sha"}, None),
+            ({"slot": "aks01", "revision": None}, None),
+            ([], None), (None, b"not json"),
+        ]:
+            with self.subTest(identity=identity, raw=raw):
+                type(self).identity = identity
+                type(self).raw_response = raw
+                with self.assertRaises(ValueError):
                     self.verify()
+                self.assertEqual(self.sleeps, [])
+
+    def test_wrong_slot_on_second_host_does_not_hide_behind_first_host_lag(self):
+        type(self).version_sequence = [
+            {"slot": "aks01", "revision": "b" * 40},
+            {"slot": "aks02", "revision": "a" * 40},
+        ]
+        with self.assertRaisesRegex(ValueError, "slot and source revision"):
+            self.verify()
+        self.assertEqual(self.sleeps, [])
+        self.assertEqual(len(self.requests), 4)
 
     def test_redirect_rejected_without_following_location(self):
         type(self).status = 302
         with self.assertRaisesRegex(ValueError, "redirects are rejected"):
             self.verify()
         self.assertEqual(len(self.requests), 1)
+        self.assertEqual(self.sleeps, [])
 
 
 if __name__ == "__main__":
