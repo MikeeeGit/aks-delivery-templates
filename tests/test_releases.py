@@ -153,7 +153,7 @@ class ReleaseTests(unittest.TestCase):
             reason="manual",
         )
         with patch.dict(os.environ, self.env, clear=True), patch.object(
-            releases, "request", side_effect=[build, {"name":"image-release-BuildApplication", "resource":{"type":"PipelineArtifact", "downloadUrl":"https://example.artifacts.visualstudio.com/synthetic-project/_apis/artifact/content?format=zip"}}, self.zip()]
+            releases, "request", side_effect=[build, {"name":"image-release-BuildApplication", "resource":{"type":"PipelineArtifact", "downloadUrl":"https://example.artifacts.visualstudio.com/A00000000-0000-0000-0000-000000000005/synthetic-project/_apis/artifact/encoded/content?format=zip"}}, self.zip()]
         ):
             self.assertEqual(
                 releases.select(
@@ -173,7 +173,7 @@ class ReleaseTests(unittest.TestCase):
                      sourceVersion=self.commit, reason="manual")
         urls = [
             "https://attacker.example/synthetic-project/_apis/artifact/content",
-            "https://example.artifacts.visualstudio.com/other-project/_apis/artifact/content",
+            "https://example.artifacts.visualstudio.com/A00000000-0000-0000-0000-000000000005/other-project/_apis/artifact/encoded/content",
             "https://example.artifacts.visualstudio.com@attacker.example/synthetic-project/_apis/artifact/content",
             "http://example.artifacts.visualstudio.com/synthetic-project/_apis/artifact/content",
             "https://dev.azure.com/example/another-project/_apis/build/artifacts",

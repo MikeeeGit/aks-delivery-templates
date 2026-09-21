@@ -214,7 +214,8 @@ def select(platform, run_id, definition, artifact_name, output):
                         and location.path.startswith(origin.path + "/_apis/"))
         artifact_service = (bool(location.hostname)
                             and location.hostname.endswith(".artifacts.visualstudio.com")
-                            and location.path.startswith("/" + project + "/"))
+                            and re.fullmatch(r"/A[0-9a-fA-F-]{36}/" + re.escape(project)
+                                             + r"/_apis/artifact/[^/]+/content", location.path) is not None)
         need(location.scheme == "https" and location.port in (None, 443)
              and not location.username and not location.password and not location.fragment
              and (same_project or artifact_service),
