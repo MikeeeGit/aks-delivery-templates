@@ -10,6 +10,8 @@ The [deployment testing system](docs/deployment-testing-system.md) rehearses bot
 
 Start with the [three-tier guide](docs/three-tier-deployment-system.md), [operator walkthrough](docs/operators-walkthrough.md), [first deployment](docs/getting-started.md) and [platform lifecycle](docs/platform-services.md). [Migration](docs/ingress-migration.md) explains the maintained-controller decision and compatibility limits. [Delivery design and compatibility](docs/source-provenance.md) maps the shared template families to their implementations.
 
+The [containerization platform plan](docs/containerization-platform-plan.md) preserves the broader architecture, deployment phases and Appendices A–P, including identity ownership, sizing, network policy, TLS and planned extensions. The [requirements matrix](docs/containerization-requirements.md) distinguishes implemented interfaces from remaining implementation and Azure qualification work. Dynatrace is an optional design extension and is excluded from the worked deployment.
+
 | Entry point | Purpose |
 |---|---|
 | [GitHub build](.github/workflows/build.yml) / [Azure build](azure-pipelines/stages/build.yml) | Build/push once, HIGH/CRITICAL scan, retained release receipt |
