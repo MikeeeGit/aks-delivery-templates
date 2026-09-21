@@ -4,6 +4,8 @@ The platform separates infrastructure, cluster services, and application release
 
 This public implementation preserves that structure from the original design document and delivery templates. It replaces private estate configuration with a synthetic example and modernizes the ingress path to Gateway API with Envoy Gateway. The original design is the architectural source; this repository does not establish that an existing production estate has been migrated.
 
+To run it, use the [ordered Azure pipeline run list](https://github.com/MikeeeGit/terraform-delivery-templates/blob/main/docs/azure/quick-runbook.md) and its linked deployment/removal procedures. The [21 September 2026 Azure record](https://github.com/MikeeeGit/terraform-delivery-templates/blob/main/docs/azure/qualification-2026-09-21.md) records real dual-slot application/CSI deployment and WAF cutover/rollback separately from the local Kubernetes tests.
+
 ## Three lifecycles, with explicit handoffs
 
 | Tier | Owns | Typical change | Handoff |

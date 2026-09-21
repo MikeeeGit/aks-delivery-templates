@@ -6,6 +6,8 @@ The engineering value is that delivery behavior can be changed and rehearsed bef
 
 Here, **self-contained** means the harness creates and cleans up its own deployment environment. It is not an offline or completely hermetic environment: it requires a Docker-capable Linux worker and access to pinned tools, images and upstream assets. It does not emulate every Azure service or prove a complete live Azure installation.
 
+A separate [real Azure trial](https://github.com/MikeeeGit/terraform-delivery-templates/blob/main/docs/azure/qualification-2026-09-21.md) exercises the direct three-tier path with private AKS, Terraform-created identities/federations/grants, ACR, Key Vault CSI and Application Gateway WAF. Use its [short run list](https://github.com/MikeeeGit/terraform-delivery-templates/blob/main/docs/azure/quick-runbook.md) to repeat the cloud deployment and removal. Argo CD's recorded acceptance remains the two-cluster kind path.
+
 ## How the pieces fit together
 
 ```mermaid
