@@ -8,6 +8,9 @@ import re
 import sys
 import tempfile
 import uuid
+from urllib.parse import urlsplit
+
+import yaml
 
 import native_authorization
 
@@ -272,9 +275,67 @@ def apply(
 
 
 
+
+def kubernetes_proxy_url(value):
+    """Accept only an explicitly selected loopback SOCKS listener."""
+    if value is None:
+        return None
+    match = re.fullmatch(r"socks5://(?:127\.0\.0\.1|\[::1\]):([1-9][0-9]{0,4})", value) if isinstance(value, str) else None
+    need(match is not None and int(match.group(1)) <= 65535,
+         "Kubernetes proxy must be socks5://127.0.0.1:PORT or socks5://[::1]:PORT (1-65535)")
+    return value
+
+
+def configure_kubernetes_proxy(kubeconfig, proxy_url, cluster_name, private_fqdn):
+    """Change only transport for the fresh kubeconfig's selected AKS cluster."""
+    proxy_url = kubernetes_proxy_url(proxy_url)
+    if proxy_url is None:
+        return
+    try:
+        config = yaml.safe_load(kubeconfig.read_text())
+    except yaml.YAMLError as error:
+        raise ValueError("Invalid temporary Kubernetes configuration") from error
+    need(isinstance(config, dict) and config.get("kind") == "Config"
+         and config.get("apiVersion") == "v1", "Expected a Kubernetes v1 Config")
+    current = config.get("current-context")
+    contexts, clusters = config.get("contexts"), config.get("clusters")
+    need(isinstance(current, str) and bool(current)
+         and isinstance(contexts, list) and isinstance(clusters, list)
+         and all(isinstance(entry, dict) for entry in contexts + clusters),
+         "Temporary kubeconfig requires a current context and named clusters")
+    selected_contexts = [entry for entry in contexts if entry.get("name") == current]
+    need(len(selected_contexts) == 1
+         and isinstance(selected_contexts[0].get("context"), dict)
+         and selected_contexts[0]["context"].get("cluster") == cluster_name,
+         "Temporary kubeconfig current context must select the requested AKS cluster")
+    selected_clusters = [entry for entry in clusters if entry.get("name") == cluster_name]
+    need(len(selected_clusters) == 1 and isinstance(selected_clusters[0].get("cluster"), dict),
+         "Temporary kubeconfig must contain exactly one requested AKS cluster")
+    selected = selected_clusters[0]["cluster"]
+    server = selected.get("server")
+    need(isinstance(server, str) and isinstance(private_fqdn, str) and bool(private_fqdn),
+         "Expected the actual private AKS hostname and kubeconfig server")
+    endpoint = urlsplit(server)
+    need(endpoint.scheme == "https" and endpoint.hostname == private_fqdn.lower()
+         and endpoint.port in (None, 443) and endpoint.username is None and endpoint.password is None
+         and endpoint.path in ("", "/") and not endpoint.query and not endpoint.fragment,
+         "Temporary kubeconfig server must match the actual private AKS HTTPS endpoint")
+    tls_name = selected.get("tls-server-name") or private_fqdn
+    need(selected.get("insecure-skip-tls-verify", False) is False
+         and isinstance(tls_name, str) and tls_name.lower() == private_fqdn.lower()
+         and any(isinstance(selected.get(key), str) and selected[key].strip()
+                 for key in ("certificate-authority-data", "certificate-authority")),
+         "Temporary kubeconfig must retain AKS certificate and hostname verification")
+    selected["proxy-url"] = proxy_url
+    kubeconfig.write_text(json.dumps(config, indent=2) + "\n")
+    kubeconfig.chmod(0o600)
+
+
 def platform_access(source, config_name, access_name, outputs_name, records_name,
-                    environment, region, slot, *, allow_platform_admin=False, yes=False):
+                    environment, region, slot, *, allow_platform_admin=False, yes=False,
+                    kubernetes_proxy=None):
     """An existing Entra administrator grants/revokes reviewed platform CI access."""
+    kubernetes_proxy = kubernetes_proxy_url(kubernetes_proxy)
     need(allow_platform_admin is True, "Platform cluster-admin requires explicit --allow-platform-admin")
     app = load_config(source, config_name)
     target = select(app, environment, region, slot)
@@ -324,6 +385,7 @@ def platform_access(source, config_name, access_name, outputs_name, records_name
              "--format", "exec", "--overwrite-existing"])
         kubeconfig.chmod(0o600)
         run(["kubelogin", "convert-kubeconfig", "--login", "azurecli", "--kubeconfig", str(kubeconfig)])
+        configure_kubernetes_proxy(kubeconfig, kubernetes_proxy, target["cluster_name"], cluster.get("privateFqdn"))
         env = dict(os.environ, KUBECONFIG=str(kubeconfig))
         base = ["kubectl", "--kubeconfig", str(kubeconfig)]
         observation = json.loads(run(base + ["auth", "whoami", "--output", "json"], env=env, capture=True))
@@ -367,12 +429,16 @@ def main():
     parser.add_argument("--aks-outputs", help="Private applied Terraform output JSON, relative to --source")
     parser.add_argument("--identity-records", help="Private discovery record list JSON, relative to --source")
     parser.add_argument("--allow-platform-admin", action="store_true")
+    parser.add_argument("--kubernetes-proxy-url", help="platform-access only: loopback SOCKS5 proxy for the private AKS API")
     args = parser.parse_args()
+    need(args.kubernetes_proxy_url is None or args.command == "platform-access",
+         "--kubernetes-proxy-url is only supported for platform-access")
     if args.command == "platform-access":
         need(args.aks_outputs and args.identity_records, "--aks-outputs and --identity-records are required")
         result = platform_access(
             args.source, args.config, args.platform_access_config, args.aks_outputs, args.identity_records,
             args.environment, args.region, args.slot, allow_platform_admin=args.allow_platform_admin, yes=args.yes,
+            kubernetes_proxy=args.kubernetes_proxy_url,
         )
     elif args.command == "identity":
         need(args.identity_output is not None, "--identity-output is required")

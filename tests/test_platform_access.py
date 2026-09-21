@@ -2,6 +2,7 @@ import copy
 import json
 from pathlib import Path
 import subprocess
+import yaml
 import unittest
 from unittest.mock import patch
 
@@ -144,13 +145,23 @@ class PlatformAccessTests(unittest.TestCase):
                            "adminGroupObjectIDs": [GROUP]},
             "disableLocalAccounts": True, "apiServerAccessProfile": {"enablePrivateCluster": True},
         }
+        self.cluster["privateFqdn"] = "selected.private.example.invalid"
+        self.kubeconfig = {
+            "apiVersion": "v1", "kind": "Config", "current-context": "selected",
+            "contexts": [{"name": "selected", "context": {"cluster": self.target["cluster_name"], "user": "operator"}}],
+            "clusters": [{"name": self.target["cluster_name"], "cluster": {
+                "server": "https://" + self.cluster["privateFqdn"] + ":443",
+                "certificate-authority-data": "cHVibGljLWNh"}}],
+            "users": [{"name": "operator", "user": {"exec": {"command": "kubelogin", "args": ["get-token", "--login", "azurecli"]}}}],
+        }
+        self.kubectl_configs = []
         self.account_type = "user"
         self.groups = [GROUP, "system:authenticated"]
         self.fail_dry_run = False
         self.calls = []
         self.manifests = []
 
-    def execute(self, allow=True):
+    def execute(self, allow=True, proxy=None):
         for name, value in [("platform.access.json", self.access), ("applied.json", self.outputs), ("records.json", self.records)]:
             (self.root / name).write_text(json.dumps(value))
 
@@ -161,7 +172,9 @@ class PlatformAccessTests(unittest.TestCase):
             if args[:3] == ["az", "aks", "show"]:
                 return json.dumps(self.cluster)
             if args[:3] == ["az", "aks", "get-credentials"]:
-                Path(args[args.index("--file") + 1]).write_text("fixture")
+                Path(args[args.index("--file") + 1]).write_text(yaml.safe_dump(self.kubeconfig))
+            if args[0] == "kubectl":
+                self.kubectl_configs.append(yaml.safe_load(Path(args[args.index("--kubeconfig") + 1]).read_text()))
             if "whoami" in args:
                 return json.dumps({"kind": "SelfSubjectReview", "status": {"userInfo": {
                     "username": "existing-operator", "groups": self.groups}}})
@@ -174,7 +187,7 @@ class PlatformAccessTests(unittest.TestCase):
         with patch.object(bootstrap, "account"), patch.object(bootstrap, "run", side_effect=command):
             return bootstrap.platform_access(
                 self.root, "delivery.apps.json", "platform.access.json", "applied.json", "records.json",
-                "pprd", "uks", "aks01", allow_platform_admin=allow, yes=True)
+                "pprd", "uks", "aks01", allow_platform_admin=allow, yes=True, kubernetes_proxy=proxy)
 
     def test_operator_applies_only_reviewed_binding_with_dryrun_and_ssa(self):
         self.prepare()
@@ -189,6 +202,37 @@ class PlatformAccessTests(unittest.TestCase):
         self.assertTrue(all("--server-side" in call and "--field-manager=aks-delivery-platform-access" in call for call in apply_calls))
         self.assertFalse(any("--admin" in call or "--force-conflicts" in call or "--as" in call for call in self.calls))
         self.assertFalse(any(call[:3] == ["az", "role", "assignment"] for call in self.calls))
+
+    def test_default_transport_preserves_fresh_kubeconfig(self):
+        self.prepare()
+        self.execute()
+        self.assertTrue(self.kubectl_configs)
+        self.assertTrue(all(config == self.kubeconfig for config in self.kubectl_configs))
+
+    def test_proxy_is_in_place_before_every_kubernetes_request(self):
+        self.prepare()
+        result = self.execute(proxy="socks5://127.0.0.1:1080")
+        expected = copy.deepcopy(self.kubeconfig)
+        expected["clusters"][0]["cluster"]["proxy-url"] = "socks5://127.0.0.1:1080"
+        self.assertEqual(result["subject_count"], 1)
+        self.assertTrue(all(config == expected for config in self.kubectl_configs))
+        self.assertFalse(any("--admin" in call for call in self.calls))
+        self.assertFalse(any("socks5://" in str(call) for call in self.calls))
+        self.assertLess(next(i for i, call in enumerate(self.calls) if call[0] == "kubelogin"),
+                        next(i for i, call in enumerate(self.calls) if call[0] == "kubectl"))
+
+    def test_bad_proxy_fails_before_azure_or_kubernetes_calls(self):
+        self.prepare()
+        with self.assertRaisesRegex(ValueError, "Kubernetes proxy"):
+            self.execute(proxy="socks5://external.example.invalid:1080")
+        self.assertEqual(self.calls, [])
+
+    def test_proxy_does_not_bypass_operator_membership(self):
+        self.prepare()
+        self.groups = ["system:masters"]
+        with self.assertRaisesRegex(ValueError, "member"):
+            self.execute(proxy="socks5://127.0.0.1:1080")
+        self.assertEqual(self.manifests, [])
 
     def test_ci_principal_cannot_grant_itself_initial_access(self):
         self.prepare()

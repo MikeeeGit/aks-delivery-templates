@@ -89,7 +89,7 @@ The key `platform` is an example; use the actual Terraform key. No build/applica
 
 ## 4. Apply as the existing operator
 
-Authenticate interactively to the correct tenant as the operator. From the private consumer:
+Use the existing approved operator login in the correct tenant, or authenticate interactively if no valid user session exists. From the private consumer:
 
 ```bash
 set -euo pipefail
@@ -108,6 +108,40 @@ done
 Each slot prompts for confirmation. `--yes` suppresses that prompt for a previously reviewed operator-run script; it does not bypass the user-login, group-membership, target or opt-in checks. Run from the appropriate private network. No local/admin kubeconfig, impersonation, Azure role mutation or forced field ownership is used.
 
 The command rechecks the live AKS ID, provisioning, authorization mode, tenant, exact administrator group set, private API and disabled local accounts. It obtains temporary user credentials, verifies the operator's observed Entra group membership and permission to bind cluster-admin, performs a server dry-run, then reconciles `ClusterRoleBinding/aks-delivery-platform` using server-side apply.
+
+## Optional: keep the operator login local through an SSH tunnel
+
+A workstation without direct private API connectivity can use a reviewed SSH worker as a SOCKS5 transport. The worker must resolve and reach the private AKS API. Verify its SSH host key through an authenticated inventory or Azure VM control-plane read before connecting; store that verified key in the selected known-hosts file.
+
+Start a loopback-only forwarding session in a separate terminal, substituting your own approved worker and dedicated SSH key:
+
+```bash
+ssh -N -D 127.0.0.1:1080 \
+  -o ExitOnForwardFailure=yes \
+  -o StrictHostKeyChecking=yes \
+  -o IdentitiesOnly=yes \
+  -o UserKnownHostsFile="$VERIFIED_KNOWN_HOSTS" \
+  -i "$WORKER_SSH_KEY" "$WORKER_USER@$WORKER_HOST"
+```
+
+Run the same operator bootstrap from the local private consumer, adding the explicit proxy option:
+
+```bash
+.venv/bin/python ../aks-delivery-templates/scripts/bootstrap.py platform-access \
+  --source . --config delivery.azure-workload.apps.json \
+  --platform-access-config platform.access.json \
+  --aks-outputs .aks-delivery/applied-aks.json \
+  --identity-records .aks-delivery/platform-identities.json \
+  --environment pprd --region uks --slot aks01 \
+  --allow-platform-admin \
+  --kubernetes-proxy-url socks5://127.0.0.1:1080
+```
+
+Repeat for the other selected slot only after reviewing its contract. The optional URL accepts only `socks5://127.0.0.1:PORT` or `socks5://[::1]:PORT`, with ports 1–65535. It adds `proxy-url` to the requested cluster in the fresh temporary kubeconfig, after confirming the current context and HTTPS server match the selected private AKS endpoint. It preserves the API hostname, certificate authority, TLS verification and user authentication. Other kubeconfig entries and the workstation's ordinary kubeconfig remain unchanged.
+
+Azure CLI and kubelogin run locally with the operator's existing authorized session. The command does not copy an Azure token cache, private key or kubeconfig to the worker, and does not set a global `HTTPS_PROXY`. All user-login, observed administrator-group, explicit privilege selection and server dry-run checks still apply. Without the option, the existing direct-connect behavior is unchanged.
+
+Kubernetes documents [per-cluster SOCKS proxy configuration](https://kubernetes.io/docs/tasks/extend-kubernetes/socks5-proxy-access-api/). This bootstrap uses REST operations for identity checks and binding reconciliation. The [kubeconfig reference](https://kubernetes.io/docs/reference/config-api/kubeconfig.v1/#cluster) notes that SOCKS5 does not support SPDY streaming endpoints; do not treat this bootstrap transport as qualification for exec, attach or port-forward. Close the forwarding session with Ctrl+C after bootstrap. An unavailable tunnel causes API access to fail; it does not enable another authentication or TLS mode.
 
 ## 5. Run platform and application pipelines
 
