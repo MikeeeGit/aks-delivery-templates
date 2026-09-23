@@ -9,9 +9,9 @@ on:
 permissions: {contents: read, id-token: write}
 jobs:
   deploy:
-    uses: MikeeeGit/aks-delivery-templates/.github/workflows/deploy.yml@d15f578dd05d1becf162b5fa67b5d0503a06da4c
+    uses: MikeeeGit/aks-delivery-templates/.github/workflows/deploy.yml@9fd0d6bd2e860c3f2e6a6aae4f154c8d3d309179
     with:
-      template-ref: 'd15f578dd05d1becf162b5fa67b5d0503a06da4c'
+      template-ref: '9fd0d6bd2e860c3f2e6a6aae4f154c8d3d309179'
       client-id: ${{ vars.AZURE_APP_DEPLOY_CLIENT_ID }}
       source-commit: ${{ inputs.source_commit }}
       image-digest: ${{ inputs.image_digest }}

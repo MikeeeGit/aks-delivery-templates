@@ -4,9 +4,9 @@ on: workflow_dispatch
 permissions: {contents: read, id-token: write}
 jobs:
   build:
-    uses: MikeeeGit/aks-delivery-templates/.github/workflows/build.yml@d15f578dd05d1becf162b5fa67b5d0503a06da4c
+    uses: MikeeeGit/aks-delivery-templates/.github/workflows/build.yml@9fd0d6bd2e860c3f2e6a6aae4f154c8d3d309179
     with:
-      template-ref: 'd15f578dd05d1becf162b5fa67b5d0503a06da4c'
+      template-ref: '9fd0d6bd2e860c3f2e6a6aae4f154c8d3d309179'
       client-id: ${{ vars.AZURE_APP_BUILD_CLIENT_ID }}
       build-environment: image-build
       runs-on: '["ubuntu-24.04"]'

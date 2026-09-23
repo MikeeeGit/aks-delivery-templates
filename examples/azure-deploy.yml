@@ -15,7 +15,7 @@ resources:
     - repository: aksTemplates
       type: git
       name: ExampleProject/aks-delivery-templates
-      ref: 'd15f578dd05d1becf162b5fa67b5d0503a06da4c'
+      ref: '9fd0d6bd2e860c3f2e6a6aae4f154c8d3d309179'
 stages:
   - template: azure-pipelines/stages/deploy.yml@aksTemplates
     parameters:
