@@ -17,5 +17,5 @@ jobs:
       image-digest: ${{ inputs.image_digest }}
       environment: pprd
       region: uks
-      cluster-slot: ${{ inputs.slot }}
+      target-cluster: ${{ inputs.slot }}
       runs-on: '["self-hosted","linux","aks-private"]'

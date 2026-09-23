@@ -6,7 +6,7 @@ on:
       config: {type: string, default: platform.services.json}
       environment: {type: string, required: true}
       region: {type: string, required: true}
-      cluster-slots: {type: string, default: '["aks01"]'}
+      target-clusters: {type: string, default: '["aks01"]'}
       deploy-sequentially: {type: boolean, default: true}
       client-id: {type: string, required: true}
       runs-on: {type: string, default: '["self-hosted","linux","aks-private"]'}
@@ -23,7 +23,7 @@ jobs:
       - id: check
         shell: bash
         env:
-          SLOTS: ${{ inputs.cluster-slots }}
+          SLOTS: ${{ inputs.target-clusters }}
           PRIVATE_REPOSITORY: ${{ github.event.repository.private }}
         run: |
           set -euo pipefail
@@ -44,7 +44,7 @@ jobs:
       config: ${{ inputs.config }}
       environment: ${{ inputs.environment }}
       region: ${{ inputs.region }}
-      cluster-slot: ${{ needs.selection.outputs.first }}
+      target-cluster: ${{ needs.selection.outputs.first }}
       client-id: ${{ inputs.client-id }}
       runs-on: ${{ inputs.runs-on }}
   second:
@@ -56,7 +56,7 @@ jobs:
       config: ${{ inputs.config }}
       environment: ${{ inputs.environment }}
       region: ${{ inputs.region }}
-      cluster-slot: ${{ needs.selection.outputs.second }}
+      target-cluster: ${{ needs.selection.outputs.second }}
       client-id: ${{ inputs.client-id }}
       runs-on: ${{ inputs.runs-on }}
   parallel:
@@ -72,6 +72,6 @@ jobs:
       config: ${{ inputs.config }}
       environment: ${{ inputs.environment }}
       region: ${{ inputs.region }}
-      cluster-slot: ${{ matrix.slot }}
+      target-cluster: ${{ matrix.slot }}
       client-id: ${{ inputs.client-id }}
       runs-on: ${{ inputs.runs-on }}

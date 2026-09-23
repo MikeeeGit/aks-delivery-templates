@@ -33,11 +33,11 @@ flowchart TB
 
 Terraform owns Azure resources. The platform tier owns namespaces, controller/CRD lifecycle, Gateway and identity prerequisites. The application tier owns Deployment, Service, application ServiceAccount/CSI binding, HTTPRoute, NetworkPolicy, HPA and disruption budget. Argo bootstrap is a privileged platform operation; ordinary app promotion cannot select a new controller version or grant itself cluster administration.
 
-Choose direct delivery or Argo ownership for a given application/slot. Two active reconcilers can overwrite each other. The [handoff procedure](argocd-operations.md#switching-between-direct-and-argo-delivery) keeps both methods usable without assigning both to the same live resources.
+Choose direct delivery or Argo ownership for a given application/cluster. Two active reconcilers can overwrite each other. The [handoff procedure](argocd-operations.md#switching-between-direct-and-argo-delivery) keeps both methods usable without assigning both to the same live resources.
 
 ## Independent cluster topology
 
-Each AKS cluster has its own Argo namespace, controller, repository server, Redis and private API/UI server. Its Application targets `https://kubernetes.default.svc` and that cluster's slot directory. No central controller stores credentials for the other AKS cluster. An Argo outage on aks02 does not remove aks01's reconciliation service; loss of either controller does not itself stop already running application pods.
+Each AKS cluster has its own Argo namespace, controller, repository server, Redis and private API/UI server. Its Application targets `https://kubernetes.default.svc` and that cluster's cluster directory. No central controller stores credentials for the other AKS cluster. An Argo outage on aks02 does not remove aks01's reconciliation service; loss of either controller does not itself stop already running application pods.
 
 This deliberately small topology is suitable for learning and an initial system. A central management cluster and ApplicationSets are valid future architectures, but require separate credential, availability and ownership design. They are not silently included here.
 
@@ -66,17 +66,17 @@ A separate configuration repository is a possible future split. The included PR 
 
 The existing build performs the image build and security scan, then records the immutable digest and full source commit. The proposal workflow selects an explicitly identified successful trusted build in the same private repository, checks producer metadata and the security gate, and invokes the existing shared renderer.
 
-A proposal affects one slot. Its branch/PR never merges itself, requests an Argo sync, changes live DNS, or rebuilds for another cluster. Reviewers inspect the source/digest pair, target slot, manifests, configuration and receipts. After a protected merge, a release operator explicitly syncs the full reviewed GitOps commit and verifies the deployed application. The helper compares the reviewed bundle with every exact committed slot file in the supplied private clone, checks its configured cluster API endpoint against kubeconfig and rejects disabled TLS verification before any cluster mutation. Only then promote another slot or approve traffic cutover.
+A proposal affects one cluster. Its branch/PR never merges itself, requests an Argo sync, changes live DNS, or rebuilds for another cluster. Reviewers inspect the source/digest pair, target cluster, manifests, configuration and receipts. After a protected merge, a release operator explicitly syncs the full reviewed GitOps commit and verifies the deployed application. The helper compares the reviewed bundle with every exact committed cluster file in the supplied private clone, checks its configured cluster API endpoint against kubeconfig and rejects disabled TLS verification before any cluster mutation. Only then promote another cluster or approve traffic cutover.
 
 Three identifiers have different meanings:
 
 | Identifier | Meaning |
 |---|---|
 | Application source commit | Source/Dockerfile/overlay snapshot used to build and render the release; returned by the application `/version` endpoint |
-| Image digest | Exact registry content promoted to either slot |
-| GitOps commit | Protected Git commit containing desired state for the selected slot; reported by Argo sync |
+| Image digest | Exact registry content promoted to either cluster |
+| GitOps commit | Protected Git commit containing desired state for the selected cluster; reported by Argo sync |
 
-A rollback is a new reviewed Git commit restoring a previously approved slot bundle. It keeps source and digest aligned and preserves audit history. It does not restore application data, downgrade CRDs or change traffic.
+A rollback is a new reviewed Git commit restoring a previously approved cluster bundle. It keeps source and digest aligned and preserves audit history. It does not restore application data, downgrade CRDs or change traffic.
 
 Manual sync is the default. Automatic pruning, automatic namespace creation, cascading Application deletion finalizers and automated self-heal are absent. OutOfSync therefore calls for review; it is not silently repaired. The HPA owns the selected Deployment's replica count: Argo ignores only that field and respects the exclusion while applying. Other drift stays visible. The [sync options](https://argo-cd.readthedocs.io/en/stable/user-guide/sync-options/) document describes these Argo mechanisms.
 
@@ -96,7 +96,7 @@ The default server is private ClusterIP, anonymous access is disabled and the de
 
 Application Gateway WAF → private HTTPS Envoy listener → HTTPRoute → ClusterIP Service → application pods remains the maintained path. The application speaks HTTP behind Envoy; this is not application-pod mTLS. AKS workload identity and Key Vault CSI still supply the real TLS Secret. The Argo controller does not read or write that application Secret.
 
-Argo Synced/Healthy is necessary but insufficient. The shared verifier also checks the exact Deployment image digest, application readiness/slot/source revision and actual Envoy HTTPS with certificate/hostname validation. Port-forward probes exercise the in-cluster proxy but bypass Azure ILB and Application Gateway. Live qualification must separately verify private IP allocation, routing, DNS, CSI/identity, ACR access, WAF/preview path and approved traffic rollback.
+Argo Synced/Healthy is necessary but insufficient. The shared verifier also checks the exact Deployment image digest, application readiness/cluster/source revision and actual Envoy HTTPS with certificate/hostname validation. Port-forward probes exercise the in-cluster proxy but bypass Azure ILB and Application Gateway. Live qualification must separately verify private IP allocation, routing, DNS, CSI/identity, ACR access, WAF/preview path and approved traffic rollback.
 
 ## Evidence and limits
 

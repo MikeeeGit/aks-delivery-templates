@@ -23,7 +23,7 @@ stages:
       deploymentEnvironment: pprd-uks-${{ parameters.slot }}
       environment: pprd
       region: uks
-      clusterSlot: ${{ parameters.slot }}
+      targetCluster: ${{ parameters.slot }}
       sourceCommit: ${{ parameters.sourceCommit }}
       imageDigest: ${{ parameters.imageDigest }}
       pool: {name: aks-private}

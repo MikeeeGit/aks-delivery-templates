@@ -15,7 +15,7 @@ No custom-resource delete action is needed by the current apply flow. Gateway, G
 
 ## Provision the two assignments
 
-Run from the repository root as a separate authorized identity with role-definition and assignment administration rights. Review the files and replace all synthetic inputs. Do not use the workload managed identity's client ID as the deployer's object ID. For different deployment identities per slot, provision each intended identity/cluster pair separately.
+Run from the repository root as a separate authorized identity with role-definition and assignment administration rights. Review the files and replace all synthetic inputs. Do not use the workload managed identity's client ID as the deployer's object ID. For different deployment identities per cluster, provision each intended identity/cluster pair separately.
 
 ```bash
 set -euo pipefail
@@ -67,7 +67,7 @@ For a different namespace, change both scopes and the application/verification c
 
 ## Qualify using the real application deployment identity
 
-After propagation, use the normal isolated Entra kubeconfig from the application worker for **each slot**, not the provisioning identity and not `--admin`. The platform must have installed CRDs and the named Gateway/EnvoyProxy before the checks. Keep the resulting evidence with the selected cluster/source record.
+After propagation, use the normal isolated Entra kubeconfig from the application worker for **each cluster**, not the provisioning identity and not `--admin`. The platform must have installed CRDs and the named Gateway/EnvoyProxy before the checks. Keep the resulting evidence with the selected cluster/source record.
 
 ```bash
 set -euo pipefail

@@ -13,7 +13,7 @@ parameters:
     type: string
   - name: region
     type: string
-  - name: clusterSlot
+  - name: targetCluster
     type: string
   - name: configFile
     type: string
@@ -57,7 +57,7 @@ stages:
                     receipt_sha=$("$py" -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "$SELECTED_RELEASE/release.json")
                     "$py" "$templates/scripts/gitops.py" prepare --source "$source" --config "$CONFIG" --build-receipt "$SELECTED_RELEASE/release.json" --build-receipt-sha256 "$receipt_sha" --environment "$TARGET_ENVIRONMENT" --region "$TARGET_REGION" --slot "$TARGET_SLOT" --output "$PROPOSAL"
                     "$py" "$templates/scripts/gitops_pr.py" azure-devops --source "$source" --proposal "$PROPOSAL"
-                  displayName: Select approved image and open one-slot GitOps pull request
+                  displayName: Select approved image and open one-cluster GitOps pull request
                   env:
                     SYSTEM_ACCESSTOKEN: $(System.AccessToken)
                     BUILD_RUN_ID: ${{ parameters.buildRunId }}
@@ -66,11 +66,11 @@ stages:
                     CONFIG: ${{ parameters.configFile }}
                     TARGET_ENVIRONMENT: ${{ parameters.environment }}
                     TARGET_REGION: ${{ parameters.region }}
-                    TARGET_SLOT: ${{ parameters.clusterSlot }}
+                    TARGET_SLOT: ${{ parameters.targetCluster }}
                     SELECTED_RELEASE: $(Agent.TempDirectory)/selected-release
                     PROPOSAL: $(Agent.TempDirectory)/gitops-proposal
                 - task: PublishPipelineArtifact@1
                   inputs:
                     targetPath: $(Agent.TempDirectory)/gitops-proposal
-                    artifact: gitops-proposal-${{ parameters.clusterSlot }}-$(Build.BuildId)
+                    artifact: gitops-proposal-${{ parameters.targetCluster }}-$(Build.BuildId)
                   displayName: Retain the exact proposed release

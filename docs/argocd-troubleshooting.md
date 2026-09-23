@@ -4,7 +4,7 @@ Use this with [deployment](argocd-deployment.md) and [operations](argocd-operati
 
 ## Start with the exact target and evidence
 
-Record the expected context, Application/slot, GitOps commit, application source commit, image digest and last successful operation. Verify the cluster API endpoint before changing anything. The helper compares it against the committed `cluster_api_servers` entry; a context/API mismatch must be corrected at the intended target rather than bypassed. Insecure kubeconfig TLS is rejected. Keep the healthy/live slot intact.
+Record the expected context, Application/cluster, GitOps commit, application source commit, image digest and last successful operation. Verify the cluster API endpoint before changing anything. The helper compares it against the committed `cluster_api_servers` entry; a context/API mismatch must be corrected at the intended target rather than bypassed. Insecure kubeconfig TLS is rejected. Keep the healthy/live cluster intact.
 
 Use bounded, selected diagnostics. Do not dump Secrets, raw kubeconfigs, whole namespace exports or CI environment variables into tickets/public artifacts:
 
@@ -31,7 +31,7 @@ Review log/error contents before sharing: repository URLs and resource metadata 
 | OutOfSync after merge | Default manual sync; confirm intended revision |
 | Synced but Progressing/Degraded | Deployment/HPA/CSI workload conditions |
 | Argo is green but HTTPS fails | Gateway/route/certificate/backend verification |
-| Exact revision check fails | GitOps branch moved or wrong receipt/slot |
+| Exact revision check fails | GitOps branch moved or wrong receipt/cluster |
 | Controller unavailable | Installation, image pulls, Redis, RBAC/cache and capacity |
 
 ## Proposal and receipt failures
@@ -40,7 +40,7 @@ A producer-run mismatch, expired/missing artifact, unsuccessful scan, source-com
 
 A “protected branch changed” failure means the checkout is stale relative to the release guard. Start a fresh run after reviewing the new head. If a GitHub PR exists but validation does not start, check that its publisher used the required scoped `gitops-token` rather than the built-in GITHUB_TOKEN and inspect workflow event/policy configuration. For Azure, check the repository-scoped build identity can create branches, contribute and contribute to PRs. A rejected proposal API write needs repository branch/PR permissions and organization policy checks; it does not need Azure login or a broader Kubernetes role. A proposal can create a branch and then fail before PR creation; inspect the specific run's branch before rerunning, without merging it automatically.
 
-A committed-tree mismatch means `--gitops-source`, `--gitops-commit` and `--bundle` do not describe the same exact slot files. Fetch/check out the reviewed merge and select its unchanged bundle; do not alter the expected hashes. A file/manifest hash mismatch means the generated directory no longer matches the approved render contract. Regenerate it from the original source and selected successful build. Review-only PRs must not introduce untracked files, credentials or another slot's content. The Application must select directory mode with only `manifest.yaml` and `recurse: false`; receipt JSON is metadata, not a deployable resource. Do not add a Kustomize/Helm detection file to the generated release directory.
+A committed-tree mismatch means `--gitops-source`, `--gitops-commit` and `--bundle` do not describe the same exact cluster files. Fetch/check out the reviewed merge and select its unchanged bundle; do not alter the expected hashes. A file/manifest hash mismatch means the generated directory no longer matches the approved render contract. Regenerate it from the original source and selected successful build. Review-only PRs must not introduce untracked files, credentials or another cluster's content. The Application must select directory mode with only `manifest.yaml` and `recurse: false`; receipt JSON is metadata, not a deployable resource. Do not add a Kustomize/Helm detection file to the generated release directory.
 
 ## Wrong Application, Project or RBAC
 
@@ -53,7 +53,7 @@ kubectl --kubeconfig "$KUBECONFIG" --context "$EXPECTED_CONTEXT" -n argocd \
   get appproject platform-demo -o yaml
 ```
 
-The destination server is the local Kubernetes service, namespace is `platform-demo`, and path ends in the correct slot. A default-project rejection is intentional; generate/apply the dedicated Project. No Namespace, CRD, Gateway, Secret or RBAC object belongs in the app release. Add needed platform resources through tier2 instead of weakening the app project.
+The destination server is the local Kubernetes service, namespace is `platform-demo`, and path ends in the correct cluster. A default-project rejection is intentional; generate/apply the dedicated Project. No Namespace, CRD, Gateway, Secret or RBAC object belongs in the app release. Add needed platform resources through tier2 instead of weakening the app project.
 
 For controller “forbidden” errors, test the specific verb/resource using the checks in [bootstrap](../examples/argocd-platform/README.md). The controller should write app Deployments/HTTPRoutes and be denied other namespaces, Secrets, Gateways and cluster roles. If it attempts cluster-wide watches, inspect the local-cluster registration's namespaces/clusterResources fields privately, the RoleBinding namespace and resource-inclusion configuration; never replace the limited setup with cluster-admin merely to silence the error.
 
@@ -141,11 +141,12 @@ A valid certificate must match the request hostname/SNI and chain to the chosen 
 
 If port-forward HTTPS passes but the real private IP fails, investigate ILB allocation, source ranges, subnet permissions, UDR/firewall and CNI policy. If the private IP works but Application Gateway fails, inspect preview/live backend settings, Host/SNI, trusted root, probe path/status and WAF/backend health. DNS and frontend cutover remain separate Terraform operations.
 
-## Revision mismatch and unchanged slots
+<a id="revision-mismatch-and-unchanged-slots"></a>
+## Revision mismatch and unchanged clusters
 
-Compare the three identifiers in the release record. The application returns the **source commit**, while Argo reports the **GitOps commit**. A wrong-slot response can indicate the wrong context, route/backend mapping, stale frontend DNS or an application overlay mismatch.
+Compare the three identifiers in the release record. The application returns the **source commit**, while Argo reports the **GitOps commit**. A wrong-cluster response can indicate the wrong context, route/backend mapping, stale frontend DNS or an application overlay mismatch.
 
-An unrelated protected-branch commit can advance Argo's comparison revision while the selected slot's manifests remain unchanged. Review current Git desired state; use that new GitOps head with the unchanged slot's original release receipt for read-only verification. During an active exact-SHA sync, hold the branch steady or repeat after reviewing the advance. Never accept a different digest or source revision merely because Argo is green.
+An unrelated protected-branch commit can advance Argo's comparison revision while the selected cluster's manifests remain unchanged. Review current Git desired state; use that new GitOps head with the unchanged cluster's original release receipt for read-only verification. During an active exact-SHA sync, hold the branch steady or repeat after reviewing the advance. Never accept a different digest or source revision merely because Argo is green.
 
 ## Argo platform unavailable
 

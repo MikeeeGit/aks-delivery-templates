@@ -9,17 +9,17 @@ Select `kubernetes_authorization_mode = "kubernetes_rbac"` in Azure AKS Foundati
 | Identity | Azure rights managed by Terraform | Kubernetes access |
 | --- | --- | --- |
 | Build CI identity | Scoped registry publishing rights | None required |
-| Platform CI identity | Cluster User on its declared slots | Optional explicitly reviewed cluster-admin binding from an existing Entra operator; see initial platform access |
-| Application CI identity | Cluster User on its declared slots | Application namespace Role and RoleBinding from bootstrap |
+| Platform CI identity | Cluster User on its declared clusters | Optional explicitly reviewed cluster-admin binding from an existing Entra operator; see initial platform access |
+| Application CI identity | Cluster User on its declared clusters | Application namespace Role and RoleBinding from bootstrap |
 | Application workload identity | Federated ServiceAccount subjects on both cluster issuers; scoped vault/resource roles | Its ServiceAccount is used by Pods, with no automatic API token mount |
 
-A CI identity authenticates a pipeline to Azure and AKS. A workload identity authenticates a running Pod to Key Vault or another Azure service. Keep their client IDs and principal object IDs distinct. A ServiceAccount annotation is only one end of the workload trust: Terraform must also create federation for that exact namespace/name on each slot's actual issuer and grant the required Azure resource access.
+A CI identity authenticates a pipeline to Azure and AKS. A workload identity authenticates a running Pod to Key Vault or another Azure service. Keep their client IDs and principal object IDs distinct. A ServiceAccount annotation is only one end of the workload trust: Terraform must also create federation for that exact namespace/name on each cluster's actual issuer and grant the required Azure resource access.
 
 ## Observe the actual CI username
 
 Run identity discovery once for every intended CI identity and cluster pair after Terraform grants Cluster User and the worker has private API connectivity. Authenticate as that CI identity through its actual federated service connection or GitHub environment. Do not run discovery as the operator and copy the operator's username.
 
-The shared [GitHub discovery workflow](../.github/workflows/discover-identity.yml) accepts a reviewed full `template-ref`, delivery config, environment, region, slot, protected approval environment, client ID, tenant and subscription. The [Azure discovery stage](../azure-pipelines/stages/discover-identity.yml) accepts the equivalent selector plus a service connection and expected client ID. Both guard private, protected manual callers before scheduling private workers. Use the same approval environment and OIDC identity that the eventual operation uses; discovery does not require a new federation subject. The private artifact contains `identity.json`, with no access token or kubeconfig. Set private artifact retention according to the organization's policy.
+The shared [GitHub discovery workflow](../.github/workflows/discover-identity.yml) accepts a reviewed full `template-ref`, delivery config, environment, region, cluster, protected approval environment, client ID, tenant and subscription. The [Azure discovery stage](../azure-pipelines/stages/discover-identity.yml) accepts the equivalent selector plus a service connection and expected client ID. Both guard private, protected manual callers before scheduling private workers. Use the same approval environment and OIDC identity that the eventual operation uses; discovery does not require a new federation subject. The private artifact contains `identity.json`, with no access token or kubeconfig. Set private artifact retention according to the organization's policy.
 
 For a local run after authenticating as the expected CI service principal:
 
@@ -52,7 +52,7 @@ Start from [bootstrap.native.apps.json](../examples/bootstrap.native.apps.json).
 }
 ```
 
-The example username is a placeholder. Replace it with the corresponding discovery result on each cluster. Keep namespace, tenant, target slot and Pod Security version aligned with the applied infrastructure and normal delivery config. Commit the reviewed configuration.
+The example username is a placeholder. Replace it with the corresponding discovery result on each cluster. Keep namespace, tenant, target cluster and Pod Security version aligned with the applied infrastructure and normal delivery config. Commit the reviewed configuration.
 
 Run the existing [bootstrap workflow or stage](bootstrap.md) with this config and the separately authorized bootstrap identity. The local equivalent, authenticated as an authorized operator, is:
 
@@ -73,7 +73,7 @@ The application's deployer remains a trusted namespace operator. It can deploy P
 
 The first namespace/platform operation requires an already authorized operator. The native AKS Terraform profile declares the Entra administrator group; group membership and the operator's initial Azure permissions must already be administered. The operator uses user credentials to run bootstrap and the existing platform service lifecycle.
 
-The optional [platform CI bootstrap](platform-ci-bootstrap.md) now closes the coded handoff for a dedicated platform identity: an existing Entra operator validates applied Terraform outputs and observed CI usernames, then explicitly opts in to a consolidated cluster-admin binding on each selected slot. Its authority is broad because platform installation owns controllers, CRDs and authorization resources. Build/application identities cannot be selected. An explicit empty selection revokes this managed binding's subjects. The command never creates Azure grants or uses admin kubeconfig. If this authority is unsuitable, retain an operator-owned platform lifecycle and separately review narrower permissions. Cluster User alone still permits only user-credential retrieval.
+The optional [platform CI bootstrap](platform-ci-bootstrap.md) now closes the coded handoff for a dedicated platform identity: an existing Entra operator validates applied Terraform outputs and observed CI usernames, then explicitly opts in to a consolidated cluster-admin binding on each selected cluster. Its authority is broad because platform installation owns controllers, CRDs and authorization resources. Build/application identities cannot be selected. An explicit empty selection revokes this managed binding's subjects. The command never creates Azure grants or uses admin kubeconfig. If this authority is unsuitable, retain an operator-owned platform lifecycle and separately review narrower permissions. Cluster User alone still permits only user-credential retrieval.
 
 ## Reconciliation and migration
 
@@ -87,4 +87,4 @@ The legacy Azure mode still creates its original deterministic Cluster User and 
 
 Offline tests check intended application operations, denied platform/cluster operations, identity mismatch failures, exact observed subjects, empty/removed subject reconciliation inputs, mode mismatches and zero Azure grant mutations in native mode. They do not establish Entra federation or Azure authorization in a deployed tenant.
 
-On each real slot, run discovery, bootstrap and application delivery through the actual identities. Verify HTTPRoute and SecretProviderClass server dry-run succeeds; Gateway mutation and RoleBinding creation must return Forbidden. Confirm CSI status shows the expected mounting Pods, the app is ready, and the private HTTPS route serves the selected revision. Keep the actual source/run/cluster evidence. The existing kind suites remain useful application/controller tests and do not replace these Azure checks.
+On each real cluster, run discovery, bootstrap and application delivery through the actual identities. Verify HTTPRoute and SecretProviderClass server dry-run succeeds; Gateway mutation and RoleBinding creation must return Forbidden. Confirm CSI status shows the expected mounting Pods, the app is ready, and the private HTTPS route serves the selected revision. Keep the actual source/run/cluster evidence. The existing kind suites remain useful application/controller tests and do not replace these Azure checks.

@@ -6,7 +6,7 @@ on:
       config: {type: string, default: delivery.gateway.apps.json}
       environment: {type: string, required: true}
       region: {type: string, required: true}
-      cluster-slot: {type: string, required: true}
+      target-cluster: {type: string, required: true}
       approval-environment: {type: string, required: true}
       client-id: {type: string, required: true}
       tenant-id: {type: string, required: true}
@@ -76,7 +76,7 @@ jobs:
           CONFIG: ${{ inputs.config }}
           TARGET_ENVIRONMENT: ${{ inputs.environment }}
           REGION: ${{ inputs.region }}
-          SLOT: ${{ inputs.cluster-slot }}
+          SLOT: ${{ inputs.target-cluster }}
           CLIENT_ID: ${{ inputs.client-id }}
           RECORD_DIRECTORY: ${{ steps.paths.outputs.record }}
         run: |
@@ -85,7 +85,7 @@ jobs:
           "$RUNNER_TEMP/aks-python/bin/python" templates/scripts/bootstrap.py identity --source app --config "$CONFIG" --environment "$TARGET_ENVIRONMENT" --region "$REGION" --slot "$SLOT" --client-id "$CLIENT_ID" --identity-output "$RECORD_DIRECTORY/identity.json"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: aks-identity-${{ github.run_id }}-${{ inputs.environment }}-${{ inputs.region }}-${{ inputs.cluster-slot }}
+          name: aks-identity-${{ github.run_id }}-${{ inputs.environment }}-${{ inputs.region }}-${{ inputs.target-cluster }}
           path: ${{ steps.paths.outputs.record }}/identity.json
           retention-days: 1
           if-no-files-found: error

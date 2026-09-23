@@ -1,5 +1,7 @@
 # Deploy the dual AKS application through Argo CD
 
+For the complete Azure lab, use the [direct-or-Argo pipeline run list](https://github.com/MikeeeGit/aks-platform-demo/blob/main/docs/AZURE-ARGOCD.md). It includes Azure workload identity/CSI checks, scoped Argo sync permissions and retirement before cloud teardown.
+
 This guide adds the Argo route to the existing system. Start with [design](argocd-design.md); keep [operations](argocd-operations.md) and [troubleshooting](argocd-troubleshooting.md) available during the trial. The direct method remains documented in [GitHub](github.md) and [Azure DevOps](azure-devops.md).
 
 ## 1. Prepare a private consumer and applied infrastructure
@@ -10,7 +12,7 @@ Complete the same first two tiers as direct delivery: network/firewall, state/id
 
 Before app deployment, confirm the private worker/workstation reaches both API servers, nodes can pull the approved ACR digest, the platform-owned Gateway and CRDs exist, and the actual certificate hostnames match the app routes. An initial Gateway may await its CSI-synchronized certificate until the app starts. Ensure the cluster metrics API is available for the supplied HPA.
 
-Choose the inactive slot for the first trial, for example aks02. Record the current live traffic destination. Updating the inactive application must not implicitly change Application Gateway or DNS.
+Choose the inactive cluster for the first trial, for example aks02. Record the current live traffic destination. Updating the inactive application must not implicitly change Application Gateway or DNS.
 
 ## 2. Pin templates and install the Argo platform
 
@@ -44,7 +46,7 @@ Review `crds.yaml`, `install.yaml`, `access.yaml` and the receipt. Save the appr
   --kubeconfig "$KUBECONFIG" --context "$EXPECTED_CONTEXT"
 ```
 
-The helper waits for real CRD/workload readiness and stops on failure. Repeat against the other explicitly selected context when ready. There is no ambient current-context fallback or automatic cross-slot apply. The [bootstrap README](../examples/argocd-platform/README.md) covers its exact RBAC, egress and upgrade contract.
+The helper waits for real CRD/workload readiness and stops on failure. Repeat against the other explicitly selected context when ready. There is no ambient current-context fallback or automatic cross-cluster apply. The [bootstrap README](../examples/argocd-platform/README.md) covers its exact RBAC, egress and upgrade contract.
 
 `evaluation` is intentionally non-HA. `--profile ha` prepares the official HA namespace installation; review at least three schedulable nodes, resources and failure-domain placement. The two-cluster acceptance test does not demonstrate HA failover. Keep Dex/ApplicationSet/notifications disabled until their separately reviewed configuration exists.
 
@@ -98,11 +100,12 @@ This is an initial-create example, not a rotation script. Create the same scoped
 
 Private Git DNS/TLS, proxy CA trust and firewall egress must work from the **repo-server pod**, not just the workstation. Keep real Git HTTPS validation enabled. The isolated CI HTTP Git service is a test fixture and is not a production configuration.
 
-## 4. Build once and propose one slot
+<a id="4-build-once-and-propose-one-slot"></a>
+## 4. Build once and propose one cluster
 
 Run the existing build pipeline in the private app repo. It builds the chosen source revision, pushes the image, scans the exact digest and publishes a release receipt only after the security gate passes.
 
-Use [GitHub gitops-propose.yml](../.github/workflows/gitops-propose.yml) or [Azure gitops-propose.yml](../azure-pipelines/stages/gitops-propose.yml) to select the numeric successful build run, trusted producer workflow/definition and correct artifact. For GitHub, pass the required `gitops-token` secret from a repository-scoped GitHub App installation token or appropriately scoped fine-grained PAT with Contents/PR write permission; the built-in GITHUB_TOKEN reads the selected build. The separate publisher credential allows its PR to trigger ordinary validation under the provider's event rules. See [GitHub token event behavior](https://docs.github.com/en/actions/concepts/security/github_token). Scope it only to this private consumer. For Azure, grant the project build identity only this repository's Create branch, Contribute and Contribute to pull requests permissions, with no branch-policy bypass; System.AccessToken authenticates those proposal writes. Give the proposal job only the documented repository/build read and proposal branch/PR permissions. It needs no Azure identity, private Kubernetes worker or Argo credential. One invocation proposes one slot.
+Use [GitHub gitops-propose.yml](../.github/workflows/gitops-propose.yml) or [Azure gitops-propose.yml](../azure-pipelines/stages/gitops-propose.yml) to select the numeric successful build run, trusted producer workflow/definition and correct artifact. For GitHub, pass the required `gitops-token` secret from a repository-scoped GitHub App installation token or appropriately scoped fine-grained PAT with Contents/PR write permission; the built-in GITHUB_TOKEN reads the selected build. The separate publisher credential allows its PR to trigger ordinary validation under the provider's event rules. See [GitHub token event behavior](https://docs.github.com/en/actions/concepts/security/github_token). Scope it only to this private consumer. For Azure, grant the project build identity only this repository's Create branch, Contribute and Contribute to pull requests permissions, with no branch-policy bypass; System.AccessToken authenticates those proposal writes. Give the proposal job only the documented repository/build read and proposal branch/PR permissions. It needs no Azure identity, private Kubernetes worker or Argo credential. One invocation proposes one cluster.
 
 The proposal validates the selected build and uses the original Kustomize overlays to render the **same** `delivery.gateway.apps.json` configuration used by direct deployment. Argo consumes that committed plain `manifest.yaml` through explicit directory include selection; it does not rerun Kustomize. It opens a review-only PR under `gitops/releases/pprd/uks/aks02`. Configure required reviewers, validation and protected-branch rules outside YAML. Review the exact diff before merging.
 
@@ -129,13 +132,14 @@ Normal PR validation should run the committed-folder validator with the pinned s
 "$PYTHON" "$TEMPLATE_DIR/scripts/validate_gitops.py" --source "$APP_DIR"
 ```
 
-This checks HEAD's Git objects, including all committed slot folders, manifest/receipt hashes, required passed-build attestations, allowed files and target/path matching. It rejects links and unknown layout. Uncommitted edits are deliberately excluded; commit the proposed files before this check. An empty public template has no releases and is valid. This is integrity validation, not independent authentication of the receipt producer; trusted build selection and protected review remain required.
+This checks HEAD's Git objects, including all committed cluster folders, manifest/receipt hashes, required passed-build attestations, allowed files and target/path matching. It rejects links and unknown layout. Uncommitted edits are deliberately excluded; commit the proposed files before this check. An empty public template has no releases and is valid. This is integrity validation, not independent authentication of the receipt producer; trusted build selection and protected review remain required.
 
-Commit only the intended slot directory to a normal review branch and merge through the protected PR process. A successful proposal is **not** a deployment. Merging leaves the default Application waiting for an explicit sync.
+Commit only the intended cluster directory to a normal review branch and merge through the protected PR process. A successful proposal is **not** a deployment. Merging leaves the default Application waiting for an explicit sync.
 
-## 5. Create the slot Application and sync the reviewed merge
+<a id="5-create-the-slot-application-and-sync-the-reviewed-merge"></a>
+## 5. Create the cluster Application and sync the reviewed merge
 
-Fetch the reviewed merge and use a clean checkout at that full GitOps commit. Set `GITOPS_COMMIT` to that 40-character merge SHA; it differs from the source commit inside `release.json`. Set `BUNDLE` to the selected slot directory in this checkout:
+Fetch the reviewed merge and use a clean checkout at that full GitOps commit. Set `GITOPS_COMMIT` to that 40-character merge SHA; it differs from the source commit inside `release.json`. Set `BUNDLE` to the selected cluster directory in this checkout:
 
 ```bash
 BUNDLE="$APP_DIR/gitops/releases/pprd/uks/aks02"
@@ -151,7 +155,7 @@ kubectl --kubeconfig "$KUBECONFIG" --context "$EXPECTED_CONTEXT" \
   apply -f "$APP_DIR/.delivery/argo-aks02/application.yaml"
 ```
 
-Review these generated files first: the Project must name only the intended Git URL and namespace; the Application must name this cluster's slot path and select only `manifest.yaml` in nonrecursive directory mode. Creating them requires trusted platform/operator access to `argocd`. Do not deploy the aks01 Application into aks02.
+Review these generated files first: the Project must name only the intended Git URL and namespace; the Application must name this cluster's cluster path and select only `manifest.yaml` in nonrecursive directory mode. Creating them requires trusted platform/operator access to `argocd`. Do not deploy the aks01 Application into aks02.
 
 Inspect `release.json` and retain its approved SHA256 separately, then request sync and verification:
 
@@ -163,18 +167,18 @@ Inspect `release.json` and retain its approved SHA256 separately, then request s
   --argo-namespace argocd --application "$APP" --gitops-commit "$GITOPS_COMMIT"
 ```
 
-This helper uses the operator's Kubernetes credentials to request an Argo operation. Before cluster mutation it compares every reviewed slot file with the committed tree at that full GitOps SHA in `--gitops-source` and verifies the configured private API endpoint/TLS and application binding. It then requires exact Git revision and Synced/Healthy state, checks the approved Deployment digest and runs Service plus real Gateway HTTPS verification. It does not directly apply the app. It requires the maintained Gateway profile.
+This helper uses the operator's Kubernetes credentials to request an Argo operation. Before cluster mutation it compares every reviewed cluster file with the committed tree at that full GitOps SHA in `--gitops-source` and verifies the configured private API endpoint/TLS and application binding. It then requires exact Git revision and Synced/Healthy state, checks the approved Deployment digest and runs Service plus real Gateway HTTPS verification. It does not directly apply the app. It requires the maintained Gateway profile.
 
 Keep the protected desired-state branch stable during the release/verification window. If it advances, review the new head and select the appropriate exact commit again; do not weaken the revision assertion to accept arbitrary `main`.
 
-To verify again without a new sync, use the same command with `verify` instead of `sync`. Keep each slot's kubeconfig, Application, path and approved receipt together in the release record. After aks02 passes, repeat proposal/review/sync/verification for aks01 using the same selected build digest if both should receive the release.
+To verify again without a new sync, use the same command with `verify` instead of `sync`. Keep each cluster's kubeconfig, Application, path and approved receipt together in the release record. After aks02 passes, repeat proposal/review/sync/verification for aks01 using the same selected build digest if both should receive the release.
 
 ## Qualify the live Azure path
 
 The helper's port-forward probes prove the in-cluster application and Envoy route; they bypass the Azure frontend. Before traffic cutover, also verify both actual Envoy ILB addresses, source-range restrictions, private DNS, node/ACR access, Entra/workload identity, Key Vault CSI certificate rotation and HPA metrics.
 
-From an allowed private source, test the real private HTTPS address with the actual certificate SAN and trusted CA. Then verify the Application Gateway preview listener, backend health, WAF and full web/API response through that frontend. Confirm slot and full application source revision. Never disable TLS validation to make a smoke check pass.
+From an allowed private source, test the real private HTTPS address with the actual certificate SAN and trusted CA. Then verify the Application Gateway preview listener, backend health, WAF and full web/API response through that frontend. Confirm cluster and full application source revision. Never disable TLS validation to make a smoke check pass.
 
-Use the companion Application Gateway Terraform candidate and reviewed cutover procedures to switch live traffic separately. Keep the prior healthy slot and Git bundle through the rollback window. An HTTP-to-HTTPS migration rollback restores both the old endpoint and protocol. The Argo app sync never changes this traffic contract.
+Use the companion Application Gateway Terraform candidate and reviewed cutover procedures to switch live traffic separately. Keep the prior healthy cluster and Git bundle through the rollback window. An HTTP-to-HTTPS migration rollback restores both the old endpoint and protocol. The Argo app sync never changes this traffic contract.
 
-Record exactly what ran: template SHA, app source SHA, image digest, GitOps merge SHA, selected context/slot, Argo status, HTTPS results and Azure frontend evidence. Treat outstanding Azure checks as outstanding even when hosted kind acceptance is green.
+Record exactly what ran: template SHA, app source SHA, image digest, GitOps merge SHA, selected context/cluster, Argo status, HTTPS results and Azure frontend evidence. Treat outstanding Azure checks as outstanding even when hosted kind acceptance is green.

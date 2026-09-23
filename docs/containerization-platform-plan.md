@@ -257,7 +257,7 @@ The original optional diff example is a design requirement for useful previews, 
 
 ## Appendix F — Kustomize application delivery
 
-Keep a shared base and reviewed overlays, with application/environment variation independent of cluster-slot selection. The public demo owns its application manifests; the shared repository owns deployment behavior.
+Keep a shared base and reviewed overlays, with application/environment variation independent of target-cluster selection. The public demo owns its application manifests; the shared repository owns deployment behavior.
 
 ```text
 application-repository/

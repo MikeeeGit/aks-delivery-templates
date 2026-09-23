@@ -12,7 +12,7 @@ parameters:
     type: string
   - name: region
     type: string
-  - name: clusterSlot
+  - name: targetCluster
     type: string
     values: [aks01, aks02]
   - name: configFile
@@ -74,7 +74,7 @@ stages:
                     CONFIG: ${{ parameters.configFile }}
                     TARGET_ENVIRONMENT: ${{ parameters.environment }}
                     REGION: ${{ parameters.region }}
-                    SLOT: ${{ parameters.clusterSlot }}
+                    SLOT: ${{ parameters.targetCluster }}
                     CLIENT_ID: ${{ parameters.clientId }}
                 - task: PublishPipelineArtifact@1
                   inputs:

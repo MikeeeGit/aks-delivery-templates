@@ -1,7 +1,7 @@
 trigger: none
 pr: none
 parameters:
-  - name: clusterSlots
+  - name: targetClusters
     type: object
     default: [aks01]
   - name: deploySequentially
@@ -19,7 +19,7 @@ stages:
       serviceConnection: example-platform-oidc
       environment: pprd
       region: uks
-      clusterSlots: ${{ parameters.clusterSlots }}
+      targetClusters: ${{ parameters.targetClusters }}
       deploySequentially: ${{ parameters.deploySequentially }}
       configFile: platform.services.json
       pool: {name: aks-private}

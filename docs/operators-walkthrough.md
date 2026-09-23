@@ -52,8 +52,8 @@ Apply the selected firewall/egress configuration and use actual assigned DNS pro
 
 | Synthetic PPRD purpose | Subnet or address |
 | --- | --- |
-| AKS slot 1 | `10.81.0.0/22` |
-| AKS slot 2 | `10.81.4.0/22` |
+| AKS cluster 1 | `10.81.0.0/22` |
+| AKS cluster 2 | `10.81.4.0/22` |
 | Application Gateway | `10.81.8.0/24` |
 | Hub management/runner path | `10.80.2.0/24` |
 | Existing direct-Service frontends | `10.81.0.20` and `10.81.4.20` |
@@ -61,7 +61,8 @@ Apply the selected firewall/egress configuration and use actual assigned DNS pro
 
 Keep the gateway subnet dedicated and required Azure control-plane traffic allowed. Every private frontend address has one owner. An app Service and ingress controller cannot claim the same address.
 
-## 4. Create AKS slots and export the identity handoff
+<a id="4-create-aks-slots-and-export-the-identity-handoff"></a>
+## 4. Create AKS clusters and export the identity handoff
 
 Apply the AKS root with actual subnet, registry and monitoring outputs. Check both private cluster endpoints and image-pull authorization. Synthetic cluster names are `uks-pprd-example-aks01` and `uks-pprd-example-aks02`.
 
@@ -73,7 +74,7 @@ Export actual Terraform outputs through the infrastructure handoff helper and re
 
 Start with the [platform example](../examples/platform-envoy/) and [platform-services guide](platform-services.md). This consumer has its own `platform.services.json`, immutable chart packages, committed values, common manifests, source revision and privileged approval. It is independent of the application delivery configuration.
 
-Install the pinned Gateway API and Envoy CRDs through the explicit platform lifecycle and wait for establishment. Then install the controller and platform-owned GatewayClass, per-slot proxy configuration and Gateway. Review schema/privilege changes separately; Helm rollback cannot reverse CRD schemas.
+Install the pinned Gateway API and Envoy CRDs through the explicit platform lifecycle and wait for establishment. Then install the controller and platform-owned GatewayClass, per-cluster proxy configuration and Gateway. Review schema/privilege changes separately; Helm rollback cannot reverse CRD schemas.
 
 ~~~text
 Controller namespace: envoy-gateway-system
@@ -92,7 +93,7 @@ The application's CSI mount synchronizes the Kubernetes TLS Secret. A new Gatewa
 
 ## 6. Bootstrap application access
 
-Run the separately approved [namespace bootstrap](bootstrap.md) for the selected slots. The maintained app uses `bootstrap.gateway.apps.json`, which requires Key Vault CSI. Bootstrap establishes namespace admission settings and scoped application role assignments.
+Run the separately approved [namespace bootstrap](bootstrap.md) for the selected clusters. The maintained app uses `bootstrap.gateway.apps.json`, which requires Key Vault CSI. Bootstrap establishes namespace admission settings and scoped application role assignments.
 
 The platform operator also establishes the exact HTTPRoute and SecretProviderClass permissions. Namespace Azure RBAC Writer is not proof that every CRD is writable. Use an Entra non-admin kubeconfig and preserve the boundary between application operations and controller/cluster administration.
 
@@ -104,15 +105,15 @@ Use the demo's [private caller examples](https://github.com/MikeeeGit/aks-platfo
 
 The build tests the app, builds and pushes one image, scans the selected remote digest, and publishes a promotable receipt only after the required security gate succeeds. Retain the private scan report and producer run identity. An image present in a registry is not sufficient evidence of a successful release build.
 
-Use the combined build/deploy caller or selected-build promotion caller. Promotion selects the actual successful producer run and expected artifact, without rebuilding or substituting a mutable image tag. Start with `aks02` when `aks01` is active. After acceptance the same digest can reach `aks01`. Sequential deployment is the default for both slots.
+Use the combined build/deploy caller or selected-build promotion caller. Promotion selects the actual successful producer run and expected artifact, without rebuilding or substituting a mutable image tag. Start with `aks02` when `aks01` is active. After acceptance the same digest can reach `aks01`. Sequential deployment is the default for both clusters.
 
-The app profile creates a Deployment, ClusterIP Service, HTTPRoute, workload identity/CSI objects, HPA and NetworkPolicy. It does not install the controller, directly allocate an Azure load balancer or change the active backend alias. The private helper applies the approved immutable bundle and checks the selected slot and full source revision.
+The app profile creates a Deployment, ClusterIP Service, HTTPRoute, workload identity/CSI objects, HPA and NetworkPolicy. It does not install the controller, directly allocate an Azure load balancer or change the active backend alias. The private helper applies the approved immutable bundle and checks the selected cluster and full source revision.
 
 ## 8. Prove each part of the request path
 
 | Check | Required result |
 | --- | --- |
-| App rollout | Expected immutable digest, available replicas and exact slot/revision |
+| App rollout | Expected immutable digest, available replicas and exact cluster/revision |
 | Platform reconciliation | Current-generation Gateway `Programmed` and HTTPRoute `Accepted`/`ResolvedRefs` |
 | Controller HTTPS | Trusted chain/SNI/Host; web and API paths return the selected release |
 | Azure frontend | Envoy Service `status.loadBalancer.ingress` has the reserved candidate IP |
@@ -137,7 +138,7 @@ A sample TTL does not promise a fixed zero-downtime deadline. Existing connectio
 
 ## 10. Record qualification and maintain each layer
 
-Retain source/template commits, chart/image digests, producer/deployment run URLs, scan results, bundle receipts, both-slot checks and the traffic plan. Record failures honestly; a workflow definition is not a successful workflow run.
+Retain source/template commits, chart/image digests, producer/deployment run URLs, scan results, bundle receipts, both-cluster checks and the traffic plan. Record failures honestly; a workflow definition is not a successful workflow run.
 
 | Evidence | Qualification boundary |
 | --- | --- |

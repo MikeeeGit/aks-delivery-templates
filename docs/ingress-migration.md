@@ -4,7 +4,7 @@ Decision date: 17 September 2026. This guide describes the public reference impl
 
 ## Decision and scope
 
-Use Kubernetes Gateway API with Envoy Gateway as the maintained ingress profile. Keep Application Gateway WAF at the Azure edge, an independent private ingress endpoint in each AKS slot, and a separately approved traffic switch. The application still builds once and promotes the same immutable digest to one or both clusters.
+Use Kubernetes Gateway API with Envoy Gateway as the maintained ingress profile. Keep Application Gateway WAF at the Azure edge, an independent private ingress endpoint in each AKS cluster, and a separately approved traffic switch. The application still builds once and promotes the same immutable digest to one or both clusters.
 
 Gateway API is the configuration API; Envoy Gateway is its controller, and Envoy Proxy handles traffic. These are different responsibilities. The Kubernetes project recommends moving from the retired community ingress-nginx controller to a maintained implementation. This retirement is specific to community ingress-nginx; it does not mean all NGINX products or the Kubernetes Ingress API have disappeared. See the [Kubernetes retirement notice](https://kubernetes.io/blog/2025/11/11/ingress-nginx-retirement/) and [Gateway API resource model](https://gateway-api.sigs.k8s.io/docs/concepts/api-overview/).
 
@@ -38,7 +38,7 @@ Inspect the rendered source configuration and observed behaviour before moving a
 |---|---|---|
 | ingress class and controller installation | Versioned Envoy controller; explicit GatewayClass and Gateway attachment | Controller available; class accepted; Gateway programmed |
 | host/path routing | HTTPRoute hostnames, PathPrefix/Exact matches and backend references | Positive and negative host/path tests, including /api and trailing slashes |
-| private load balancer per cluster | Per-slot Envoy proxy Service with Azure internal-LB configuration | Actual assigned IP, subnet and source restrictions match the reviewed target |
+| private load balancer per cluster | Per-cluster Envoy proxy Service with Azure internal-LB configuration | Actual assigned IP, subnet and source restrictions match the reviewed target |
 | TLS Secret from Key Vault CSI | Same-namespace TLS Secret referenced by the HTTPS listener | Secret exists, valid chain/SAN/expiry, rotation and backend health verified |
 | HTTP backend protocol | ClusterIP Service behind Envoy | Scheme and app redirects correct; only the intended proxy pods can reach it |
 | SSL redirect annotations | Explicit listener/routing policy or edge redirect | HTTPS redirect behaviour is tested once at the intended boundary |
@@ -55,14 +55,14 @@ Envoy's optional request-buffer policy buffers the entire request and can reject
 
 ## Migration sequence
 
-1. Capture the current rendered ingress configuration, certificates, private IPs, health probes, host headers, DNS TTL and a baseline set of application checks. Record the active slot and rollback target.
+1. Capture the current rendered ingress configuration, certificates, private IPs, health probes, host headers, DNS TTL and a baseline set of application checks. Record the active cluster and rollback target.
 2. Reserve a distinct candidate ingress address. Never let an existing application LoadBalancer Service, legacy NGINX controller and Envoy controller claim the same private IP.
-3. On the inactive slot, run the separately approved platform pipeline. Review the pinned CRD/chart/values bundle. Install or update CRDs deliberately, wait for establishment, install the controller, then create the private Gateway configuration. A Helm rollback does not roll back CRD schemas.
+3. On the inactive cluster, run the separately approved platform pipeline. Review the pinned CRD/chart/values bundle. Install or update CRDs deliberately, wait for establishment, install the controller, then create the private Gateway configuration. A Helm rollback does not roll back CRD schemas.
 4. Deploy the chosen application release by its existing image digest. Apply workload identity/CSI resources and start pods so CSI can synchronize the TLS Secret. The Gateway may be unready until that Secret exists.
 5. Check current-generation Gateway and HTTPRoute status, backend endpoints, rollout health and the expected certificate. Test the candidate HTTPS endpoint using the real hostname and certificate verification. A Service port-forward alone bypasses ingress and is insufficient.
 6. Check Application Gateway's candidate backend health and perform a preview route test through WAF. Validate /api, redirects, headers, long requests and any application-specific session or upload requirements.
 7. Review and apply the separate DNS/backend routing change. Observe requests, errors, latency and old/new traffic during the drain window. DNS caches, keep-alive connections and sessions mean the change is not instantaneous.
-8. Keep the previous healthy slot available for the agreed rollback window. Repeat the platform/application validation on the other slot before declaring the migration complete. Remove legacy ingress resources only after acceptance and ownership review.
+8. Keep the previous healthy cluster available for the agreed rollback window. Repeat the platform/application validation on the other cluster before declaring the migration complete. Remove legacy ingress resources only after acceptance and ownership review.
 
 Rollback normally restores the previous healthy traffic target first. Reapplying an older application receipt is a separate operation. Controller, CRD, application, database and certificate rollback each have their own compatibility constraints; a stateless demo cannot qualify a stateful application's recovery.
 
@@ -71,7 +71,7 @@ Rollback normally restores the previous healthy traffic target first. Reapplying
 | Evidence level | What it establishes | What it cannot establish |
 |---|---|---|
 | Static tests and real Helm/Kustomize rendering | Configuration contracts, pinning, valid generated inputs and guarded failure paths | A running proxy or reachable AKS endpoint |
-| Two-cluster Kubernetes acceptance | Controller reconciliation, HTTPS host/path routing, selected-slot deployment, inactive-slot update and rollback in that test environment | Azure identity, private DNS, cloud load balancers, WAF or production-CNI enforcement |
+| Two-cluster Kubernetes acceptance | Controller reconciliation, HTTPS host/path routing, selected-cluster deployment, inactive-cluster update and rollback in that test environment | Azure identity, private DNS, cloud load balancers, WAF or production-CNI enforcement |
 | Private Azure qualification | Actual service connections, role propagation, ACR pulls, CSI certificate access, ILB allocation, WAF/backend health and cutover | Production behaviour at untested load or application-specific data recovery |
 | Application acceptance | Required sessions, uploads, redirects, API behaviour, streaming and data compatibility | Features not included in the acceptance cases |
 

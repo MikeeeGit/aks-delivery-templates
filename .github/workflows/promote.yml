@@ -8,7 +8,7 @@ on:
       build-workflow: {type: string, default: image-build.yml}
       environment: {type: string, required: true}
       region: {type: string, required: true}
-      cluster-slots: {type: string, default: '["aks01"]'}
+      target-clusters: {type: string, default: '["aks01"]'}
       deploy-sequentially: {type: boolean, default: true}
       client-id: {type: string, required: true}
       runs-on: {type: string, default: '["self-hosted","linux","aks-private"]'}
@@ -55,7 +55,7 @@ jobs:
       image-digest: ${{ needs.release.outputs.image_digest }}
       environment: ${{ inputs.environment }}
       region: ${{ inputs.region }}
-      cluster-slots: ${{ inputs.cluster-slots }}
+      target-clusters: ${{ inputs.target-clusters }}
       deploy-sequentially: ${{ inputs.deploy-sequentially }}
       client-id: ${{ inputs.client-id }}
       runs-on: ${{ inputs.runs-on }}

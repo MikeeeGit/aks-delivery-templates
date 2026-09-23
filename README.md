@@ -1,8 +1,22 @@
 # AKS Delivery Templates
 
-Reusable Azure DevOps and GitHub delivery for a three-tier AKS platform: Terraform infrastructure, independently versioned cluster/platform services, and application releases. Shared scripts use explicit environment, region and cluster-slot selection with Kustomize application configuration. Build an image once, scan its immutable digest, then promote the same successful build to `aks01`, `aks02` or both.
+## Target clusters
 
-The maintained platform profile installs pinned **Envoy Gateway / Gateway API**, private per-slot frontends, workload ServiceAccounts and reviewed common manifests. A separate retired NGINX compatibility profile records the original controller settings for migration. Application configuration remains shared Kustomize: configuration/CSI and immutable image rendering feed either approved direct deployment or Argo CD reconciliation of reviewed YAML in Git. Both methods verify rollout and selected-slot Service plus HTTPS Gateway behavior. Application deployment and traffic cutover have separate approvals.
+The two names **aks01** and **aks02** identify independent AKS clusters. Either
+cluster can serve active traffic; the other can be updated and verified before
+a separately approved traffic switch.
+
+Pipeline selectors are now **targetClusters / target-clusters** for a list and
+**targetCluster / target-cluster** for one cluster. Update caller parameters and
+the immutable shared-template reference together. Earlier pinned revisions keep
+their earlier interface. The stored release/configuration field named
+`slot` remains the cluster identifier for compatibility with existing receipts;
+it is not an Azure App Service deployment slot.
+
+
+Reusable Azure DevOps and GitHub delivery for a three-tier AKS platform: Terraform infrastructure, independently versioned cluster/platform services, and application releases. Shared scripts use explicit environment, region and target-cluster selection with Kustomize application configuration. Build an image once, scan its immutable digest, then promote the same successful build to `aks01`, `aks02` or both.
+
+The maintained platform profile installs pinned **Envoy Gateway / Gateway API**, private per-cluster frontends, workload ServiceAccounts and reviewed common manifests. A separate retired NGINX compatibility profile records the original controller settings for migration. Application configuration remains shared Kustomize: configuration/CSI and immutable image rendering feed either approved direct deployment or Argo CD reconciliation of reviewed YAML in Git. Both methods verify rollout and selected-cluster Service plus HTTPS Gateway behavior. Application deployment and traffic cutover have separate approvals.
 
 Choose the [application delivery method](docs/delivery-methods.md): the original direct pipelines or the additive Argo CD option. Argo guides cover [design](docs/argocd-design.md), [deployment](docs/argocd-deployment.md), [operations](docs/argocd-operations.md) and [troubleshooting](docs/argocd-troubleshooting.md).
 
@@ -18,10 +32,10 @@ The [containerization platform plan](docs/containerization-platform-plan.md) pre
 |---|---|
 | [GitHub build](.github/workflows/build.yml) / [Azure build](azure-pipelines/stages/build.yml) | Build/push once, HIGH/CRITICAL scan, retained release receipt |
 | [GitHub bootstrap](.github/workflows/bootstrap.yml) / [Azure bootstrap](azure-pipelines/stages/bootstrap.yml) | Separately approved namespace security and scoped deployment permissions |
-| [GitHub platform](.github/workflows/platform-services.yml) / [Azure platform](azure-pipelines/stages/platform-services.yml) | Independently upgrade pinned charts/CRDs/common resources on selected slots |
-| [GitHub deployment](.github/workflows/deploy-selected.yml) / [Azure build/deploy](azure-pipelines/stages/build-deploy.yml) | One/both slots, sequential by default; explicit parallel option |
+| [GitHub platform](.github/workflows/platform-services.yml) / [Azure platform](azure-pipelines/stages/platform-services.yml) | Independently upgrade pinned charts/CRDs/common resources on selected clusters |
+| [GitHub deployment](.github/workflows/deploy-selected.yml) / [Azure build/deploy](azure-pipelines/stages/build-deploy.yml) | One/both clusters, sequential by default; explicit parallel option |
 | [GitHub promotion](.github/workflows/promote.yml) / [Azure promotion](azure-pipelines/stages/promote.yml) | Select a successful build receipt and deploy without rebuilding |
-| [GitHub GitOps proposal](.github/workflows/gitops-propose.yml) / [Azure proposal](azure-pipelines/stages/gitops-propose.yml) | Review-only one-slot PR from a successful build; Argo owns application reconciliation |
+| [GitHub GitOps proposal](.github/workflows/gitops-propose.yml) / [Azure proposal](azure-pipelines/stages/gitops-propose.yml) | Review-only one-cluster PR from a successful build; Argo owns application reconciliation |
 | [delivery.py](scripts/delivery.py) / [platform_services.py](scripts/platform_services.py) | Shared local and CI command contracts |
 
 Authenticated workflows require a trusted **private consumer repository**, protected source and external approval settings. Hosted guards run before private workers or cloud authentication. Public PR validation stays credential-free on isolated hosted workers. Exact source snapshots, local manifest inputs, separate artifact checksums, explicit tenant/subscription selection and temporary credentials prevent accidental context drift; they do not replace operator authorization.

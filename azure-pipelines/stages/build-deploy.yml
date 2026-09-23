@@ -10,7 +10,7 @@ parameters:
     type: string
   - name: region
     type: string
-  - name: clusterSlots
+  - name: targetClusters
     type: object
     default: [aks01]
   - name: deploySequentially
@@ -42,7 +42,7 @@ stages:
       serviceConnection: ${{ parameters.deployServiceConnection }}
       environment: ${{ parameters.environment }}
       region: ${{ parameters.region }}
-      clusterSlots: ${{ parameters.clusterSlots }}
+      targetClusters: ${{ parameters.targetClusters }}
       deploySequentially: ${{ parameters.deploySequentially }}
       configFile: ${{ parameters.configFile }}
       pool: ${{ parameters.deployPool }}

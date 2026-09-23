@@ -4,17 +4,17 @@ This manual assumes [deployment](argocd-deployment.md) is complete for each sele
 
 ## Keep the release record unambiguous
 
-For every slot retain the template/bootstrap versions, kubecontext/API endpoint, Application name, GitOps commit, application source commit, image digest, release-receipt checksum, approved PR/build run and verification result. Record which slot currently receives live traffic separately.
+For every cluster retain the template/bootstrap versions, kubecontext/API endpoint, Application name, GitOps commit, application source commit, image digest, release-receipt checksum, approved PR/build run and verification result. Record which cluster currently receives live traffic separately.
 
 **GitOps revision and application source revision are different.** The former identifies desired-state Git; the latter is baked into the image and returned by `/version`. An aks02-only PR advances the common protected branch while aks01's release files and image remain unchanged. Once Argo refreshes that branch, an aks01 verification uses the new GitOps head and the original aks01 source/digest receipt. That is not a rebuild or an app update.
 
-Keep the branch stable while explicitly syncing/verifying an exact SHA. If it moves, review the new head and select it again. Do not replace the equality check with “whatever is latest.” Serialise proposal merges and releases according to the team's change window; one-slot proposal jobs alone do not prevent unrelated repository merges.
+Keep the branch stable while explicitly syncing/verifying an exact SHA. If it moves, review the new head and select it again. Do not replace the equality check with “whatever is latest.” Serialise proposal merges and releases according to the team's change window; one-cluster proposal jobs alone do not prevent unrelated repository merges.
 
 ## Routine health and deployment
 
-An operator should be able to answer: can both Argo instances reach Git and the API; is the selected Application Synced/Healthy at the reviewed revision; is the actual app digest correct; do private Envoy HTTPS and the external preview/live path return the expected slot/source revision?
+An operator should be able to answer: can both Argo instances reach Git and the API; is the selected Application Synced/Healthy at the reviewed revision; is the actual app digest correct; do private Envoy HTTPS and the external preview/live path return the expected cluster/source revision?
 
-Use the deployment guide's `gitops.py verify` command for full application verification, including `--gitops-config` and `--gitops-source`. The reviewed clone must contain the selected full GitOps commit and its exact slot files; a local directory with matching-looking YAML is insufficient. To inspect status without printing configuration or Secrets:
+Use the deployment guide's `gitops.py verify` command for full application verification, including `--gitops-config` and `--gitops-source`. The reviewed clone must contain the selected full GitOps commit and its exact cluster files; a local directory with matching-looking YAML is insufficient. To inspect status without printing configuration or Secrets:
 
 ```bash
 kubectl --kubeconfig "$KUBECONFIG" --context "$EXPECTED_CONTEXT" -n argocd \
@@ -25,7 +25,7 @@ kubectl --kubeconfig "$KUBECONFIG" --context "$EXPECTED_CONTEXT" -n platform-dem
   get deployments,pods,services,hpa,pdb,httproutes
 ```
 
-The normal sequence is select a successful scanned build → propose inactive slot → review/merge → sync exact GitOps SHA → verify app/Envoy → verify Azure preview → approve separate traffic cutover. Promote the other slot only after the first passes. No automatic cross-cluster transaction or fallback is implied.
+The normal sequence is select a successful scanned build → propose inactive cluster → review/merge → sync exact GitOps SHA → verify app/Envoy → verify Azure preview → approve separate traffic cutover. Promote the other cluster only after the first passes. No automatic cross-cluster transaction or fallback is implied.
 
 The CI proposal identity can open branches/PRs but cannot merge them or reach Kubernetes. Argo has read-only Git access. The release operator controls manual sync. Keep the build identity, proposal identity, platform administrator and traffic approver distinct where the team's governance requires it.
 
@@ -33,7 +33,7 @@ The CI proposal identity can open branches/PRs but cannot merge them or reach Ku
 
 With manual sync, Argo reports meaningful divergence as OutOfSync. Determine whether it is an incident fix, an unexpected writer, a changed admission default or a new reviewed Git revision before acting. Preserve evidence and reconcile the intended state through a reviewed change or a deliberate sync.
 
-Do not use live `kubectl set image` or direct pipeline deploy as the normal update mechanism for an Argo-owned slot. It bypasses the desired-state review and leaves two competing records.
+Do not use live `kubectl set image` or direct pipeline deploy as the normal update mechanism for an Argo-owned cluster. It bypasses the desired-state review and leaves two competing records.
 
 The generated Application excludes only the selected Deployment's `/spec/replicas` and enables `RespectIgnoreDifferences=true`; the HPA remains authoritative for replicas. This does not hide image, environment, resources, route or NetworkPolicy drift. Healthy HPA behavior still depends on the cluster metrics API and realistic requests/limits. The [Argo diff guide](https://argo-cd.readthedocs.io/en/stable/user-guide/diffing/) explains field exclusions.
 
@@ -41,7 +41,7 @@ If the team later enables automatic self-heal, treat it as a design change: eval
 
 ## Application rollback and traffic rollback
 
-Restore a previously approved slot directory in a new review branch, including its manifest, optional public CA and both receipts. Restoring the directory is safer than indiscriminately reverting a commit that also changed unrelated source or another slot:
+Restore a previously approved cluster directory in a new review branch, including its manifest, optional public CA and both receipts. Restoring the directory is safer than indiscriminately reverting a commit that also changed unrelated source or another cluster:
 
 ```bash
 git -C "$APP_DIR" switch -c rollback/aks02-approved-release
@@ -52,16 +52,16 @@ git -C "$APP_DIR" diff -- gitops/releases/pprd/uks/aks02
 
 Validate the restored bundle with the shared helper/tests, confirm the old immutable image still exists and is permitted by current security policy, then commit/open the normal PR. Review and merge it; sync the **new rollback merge SHA**. The restored receipt's source revision and digest remain the original approved pair. Repeat Service/HTTPS and Azure preview checks.
 
-If production traffic already points to the unhealthy slot, apply the separately reviewed traffic rollback promptly according to the service's incident procedure. App rollback and DNS/Application Gateway rollback are separate actions. Neither automatically reverses database changes or restores data. Do not remove the other healthy slot during investigation.
+If production traffic already points to the unhealthy cluster, apply the separately reviewed traffic rollback promptly according to the service's incident procedure. App rollback and DNS/Application Gateway rollback are separate actions. Neither automatically reverses database changes or restores data. Do not remove the other healthy cluster during investigation.
 
 ## Switching between direct and Argo delivery
 
 For direct → Argo adoption:
 
-1. Freeze direct application deployments to that slot and ensure no operation is running. Keep platform and traffic pipelines available.
-2. Propose the exact currently approved source/digest through GitOps. Compare the generated objects with the live app, including slot labels and Service type.
+1. Freeze direct application deployments to that cluster and ensure no operation is running. Keep platform and traffic pipelines available.
+2. Propose the exact currently approved source/digest through GitOps. Compare the generated objects with the live app, including cluster labels and Service type.
 3. Install Argo/bootstrap permissions, create the restricted Project/Application and inspect its diff. Resolve unexpected ownership changes before sync.
-4. Perform one manual sync and verify the same Service/HTTPS path. Record Argo as the application owner and keep direct apply disabled for that slot.
+4. Perform one manual sync and verify the same Service/HTTPS path. Record Argo as the application owner and keep direct apply disabled for that cluster.
 
 `FailOnSharedResource=true` detects another Argo Application's tracking; it does not detect or prevent an unrelated direct pipeline from applying the same objects. The operational freeze is therefore essential.
 
@@ -71,7 +71,7 @@ A profile change can leave old resources because neither default path silently p
 
 ## Access, Git credentials and SSO
 
-Maintain the committed `cluster_api_servers` mapping from applied infrastructure for both slots. The operator helper checks the actual selected kubeconfig API endpoint and TLS policy before use. Review endpoint changes explicitly during cluster replacement; never change the expected URL merely to make an accidental context pass.
+Maintain the committed `cluster_api_servers` mapping from applied infrastructure for both clusters. The operator helper checks the actual selected kubeconfig API endpoint and TLS policy before use. Review endpoint changes explicitly during cluster replacement; never change the expected URL merely to make an accidental context pass.
 
 Treat `argocd` namespace write access as platform administration. The shared sync helper patches an Application through Kubernetes, so it uses Kubernetes authorization; it does not inherit the Argo web UI's SSO/RBAC policy. Give that capability only to trusted release operators and scope resource access to the intended Application where practical. Read-only verification additionally needs app status/read/watch and the port-forward permissions used by the existing verifier.
 
@@ -93,7 +93,7 @@ argocd admin export --kubeconfig "$KUBECONFIG" --context "$EXPECTED_CONTEXT" \
 
 Encrypt/restrict the output under the organization's backup procedure and verify restore in an isolated environment. An export from the wrong namespace may not fail, so confirm its context/namespace and expected object inventory without publishing contents. [Upstream recovery guidance](https://argo-cd.readthedocs.io/en/stable/operator-manual/disaster_recovery/).
 
-To replace a failed cluster, first restore/recreate the Azure infrastructure and tier2 platform, including that new cluster's workload identity issuer federation. Reapply the reviewed Argo bootstrap, restore credentials securely, recreate the correctly scoped Project/Application and explicitly sync the approved slot Git state. Verify app, TLS, Azure private frontend and traffic readiness before routing users to it. Reusing an old cluster's OIDC assumption is not sufficient.
+To replace a failed cluster, first restore/recreate the Azure infrastructure and tier2 platform, including that new cluster's workload identity issuer federation. Reapply the reviewed Argo bootstrap, restore credentials securely, recreate the correctly scoped Project/Application and explicitly sync the approved cluster Git state. Verify app, TLS, Azure private frontend and traffic readiness before routing users to it. Reusing an old cluster's OIDC assumption is not sufficient.
 
 Use `argocd admin import` only for a reviewed backup with the correct version/target. Dry-run and inspect the intended objects; do not default to pruning or conflict override. A config restore is not a backup of persistent application data.
 

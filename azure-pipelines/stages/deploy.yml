@@ -10,7 +10,7 @@ parameters:
     type: string
   - name: region
     type: string
-  - name: clusterSlot
+  - name: targetCluster
     type: string
     values: [aks01, aks02]
   - name: sourceCommit
@@ -76,7 +76,7 @@ stages:
             IMAGE_DIGEST: ${{ parameters.imageDigest }}
             TARGET_ENVIRONMENT: ${{ parameters.environment }}
             REGION: ${{ parameters.region }}
-            CLUSTER_SLOT: ${{ parameters.clusterSlot }}
+            CLUSTER_SLOT: ${{ parameters.targetCluster }}
             APPROVAL_ENVIRONMENT: ${{ parameters.deploymentEnvironment }}
             BUNDLE: $(Agent.TempDirectory)/rendered-release
         - task: PublishPipelineArtifact@1

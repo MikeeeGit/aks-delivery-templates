@@ -6,12 +6,12 @@ on:
       config: {type: string, default: platform.services.json}
       environment: {type: string, required: true}
       region: {type: string, required: true}
-      cluster-slot: {type: string, required: true}
+      target-cluster: {type: string, required: true}
       client-id: {type: string, required: true}
       runs-on: {type: string, default: '["self-hosted","linux","aks-private"]'}
 permissions: {contents: read}
 concurrency:
-  group: platform-${{ github.repository }}-${{ inputs.environment }}-${{ inputs.region }}-${{ inputs.cluster-slot }}
+  group: platform-${{ github.repository }}-${{ inputs.environment }}-${{ inputs.region }}-${{ inputs.target-cluster }}
   cancel-in-progress: false
 jobs:
   render:
@@ -57,12 +57,12 @@ jobs:
           SOURCE_COMMIT: ${{ github.sha }}
           TARGET_ENVIRONMENT: ${{ inputs.environment }}
           REGION: ${{ inputs.region }}
-          CLUSTER_SLOT: ${{ inputs.cluster-slot }}
+          CLUSTER_SLOT: ${{ inputs.target-cluster }}
         run: '"$RUNNER_TEMP/aks-python/bin/python" templates/scripts/platform_services.py prepare --source app --config "$CONFIG" --commit "$SOURCE_COMMIT" --environment "$TARGET_ENVIRONMENT" --region "$REGION" --slot "$CLUSTER_SLOT" --output "$RUNNER_TEMP/bundle" --github-output "$GITHUB_OUTPUT"'
       - id: artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: platform-${{ github.run_id }}-${{ inputs.environment }}-${{ inputs.region }}-${{ inputs.cluster-slot }}
+          name: platform-${{ github.run_id }}-${{ inputs.environment }}-${{ inputs.region }}-${{ inputs.target-cluster }}
           path: ${{ runner.temp }}/bundle/
           retention-days: 1
           if-no-files-found: error

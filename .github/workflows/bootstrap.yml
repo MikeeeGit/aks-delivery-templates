@@ -7,7 +7,7 @@ on:
       bootstrap-config: {type: string, default: bootstrap.apps.json}
       environment: {type: string, required: true}
       region: {type: string, required: true}
-      cluster-slots: {type: string, default: '["aks01"]'}
+      target-clusters: {type: string, default: '["aks01"]'}
       client-id: {type: string, required: true}
       runs-on: {type: string, default: '["self-hosted","linux","aks-private"]'}
 permissions: {contents: read}
@@ -38,7 +38,7 @@ jobs:
           "$RUNNER_TEMP/aks-python/bin/pip" install --require-hashes -r templates/requirements.txt
       - id: targets
         env:
-          SLOTS: ${{ inputs.cluster-slots }}
+          SLOTS: ${{ inputs.target-clusters }}
           CONFIG: ${{ inputs.config }}
           BOOTSTRAP_CONFIG: ${{ inputs.bootstrap-config }}
           TARGET_ENVIRONMENT: ${{ inputs.environment }}

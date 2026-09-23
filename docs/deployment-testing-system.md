@@ -34,8 +34,8 @@ The executable harnesses live in [aks-platform-demo](https://github.com/MikeeeGi
 | Build and push real images to a disposable registry; verify content digests | Yes | Yes |
 | Render committed Kustomize configuration through the shared helper | Yes | Yes |
 | Install real Envoy/Gateway API controllers on two clusters | Yes | Yes |
-| Deploy an initial release to both slots | Yes | Yes |
-| Update only the inactive slot and preserve the active release | Yes | Yes |
+| Deploy an initial release to both clusters | Yes | Yes |
+| Update only the inactive cluster and preserve the active release | Yes | Yes |
 | Roll back and verify the restored application | Reapply the original bundle | Commit the original desired release back to Git and reconcile |
 | Verify Service responses and actual Envoy HTTPS, including Host/SNI rejection | Yes | Yes |
 | Reject an invalid Deployment, then recover | Not a separate acceptance scenario | Yes |
@@ -77,8 +77,8 @@ The fixture's test-only metrics-server setting and certificate/registry substitu
 1. **Develop and review.** Change the application, configuration or shared delivery implementation; run the focused local checks described in [shared verification](testing.md) and the [application testing guide](https://github.com/MikeeeGit/aks-platform-demo/blob/main/docs/TESTING.md).
 2. **Rehearse both delivery methods.** Run the disposable-cluster harnesses on a Docker-capable worker or through the public CI workflows. Inspect each method's report independently. Failed scenarios or cleanup are failures, not partial acceptance.
 3. **Prepare a private Azure consumer.** Pin the reviewed templates and configure real identities, addresses, certificates, protected environments and connectivity using the [sandbox runbook](https://github.com/MikeeeGit/terraform-delivery-templates/blob/main/docs/azure/sandbox-deployment.md).
-4. **Qualify the Azure integration.** Build and scan the real application release in the trusted pipeline, then rehearse both slots and the cloud-specific checks above. The harness creates synthetic source revisions and registry/certificate fixtures: its temporary images and credentials are not production release artifacts.
-5. **Promote deliberately.** Promote the approved immutable application image through the intended live environments, rendering their reviewed target configuration. Choose one application deployment owner per slot. Verify the candidate before separately approving traffic switching; retain the prior approved release and a tested recovery procedure.
+4. **Qualify the Azure integration.** Build and scan the real application release in the trusted pipeline, then rehearse both clusters and the cloud-specific checks above. The harness creates synthetic source revisions and registry/certificate fixtures: its temporary images and credentials are not production release artifacts.
+5. **Promote deliberately.** Promote the approved immutable application image through the intended live environments, rendering their reviewed target configuration. Choose one application deployment owner per cluster. Verify the candidate before separately approving traffic switching; retain the prior approved release and a tested recovery procedure.
 
 The result is a repeatable way to find delivery defects early, compare two deployment methods against the same application contract, and carry explicit evidence into an Azure rehearsal. It reduces the unknowns before live deployment; it does not remove that final qualification step.
 

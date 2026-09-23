@@ -8,7 +8,7 @@ on:
       build-workflow: {type: string, default: image-build.yml}
       environment: {type: string, required: true}
       region: {type: string, required: true}
-      cluster-slot: {type: string, required: true}
+      target-cluster: {type: string, required: true}
       approval-environment: {type: string, default: gitops-proposals}
     secrets:
       gitops-token:
@@ -16,7 +16,7 @@ on:
         description: Scoped GitHub App installation token or fine-grained PAT; allows PR checks to run.
 permissions: {contents: read, actions: read}
 concurrency:
-  group: gitops-proposal-${{ github.repository }}-${{ inputs.environment }}-${{ inputs.region }}-${{ inputs.cluster-slot }}
+  group: gitops-proposal-${{ github.repository }}-${{ inputs.environment }}-${{ inputs.region }}-${{ inputs.target-cluster }}
   cancel-in-progress: false
 jobs:
   propose:
@@ -56,7 +56,7 @@ jobs:
           CONFIG: ${{ inputs.config }}
           TARGET_ENVIRONMENT: ${{ inputs.environment }}
           TARGET_REGION: ${{ inputs.region }}
-          TARGET_SLOT: ${{ inputs.cluster-slot }}
+          TARGET_SLOT: ${{ inputs.target-cluster }}
         run: |
           set -euo pipefail
           export PATH="$RUNNER_TEMP/aks-tools:$PATH"
@@ -75,7 +75,7 @@ jobs:
       - name: Retain the exact proposed release
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: gitops-proposal-${{ inputs.cluster-slot }}-${{ github.run_id }}
+          name: gitops-proposal-${{ inputs.target-cluster }}-${{ github.run_id }}
           path: ${{ runner.temp }}/gitops-proposal/
           if-no-files-found: error
           retention-days: 14

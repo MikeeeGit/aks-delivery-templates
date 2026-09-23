@@ -8,7 +8,7 @@ parameters:
     type: string
   - name: region
     type: string
-  - name: clusterSlots
+  - name: targetClusters
     type: object
     default: [aks01]
   - name: configFile
@@ -62,9 +62,9 @@ stages:
               BOOTSTRAP_CONFIG: ${{ parameters.bootstrapConfigFile }}
               TARGET_ENVIRONMENT: ${{ parameters.environment }}
               REGION: ${{ parameters.region }}
-              SLOTS: ${{ convertToJson(parameters.clusterSlots) }}
+              SLOTS: ${{ convertToJson(parameters.targetClusters) }}
               BOOTSTRAP_PREFIX: ${{ parameters.bootstrapEnvironmentPrefix }}
-  - ${{ each slot in parameters.clusterSlots }}:
+  - ${{ each slot in parameters.targetClusters }}:
     - stage: ${{ parameters.stageName }}_${{ slot }}
       dependsOn: ${{ parameters.stageName }}_Guard
       jobs:

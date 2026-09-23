@@ -2,7 +2,7 @@ name: Platform services
 on:
   workflow_dispatch:
     inputs:
-      cluster-slots:
+      target-clusters:
         type: choice
         options: ['["aks01"]', '["aks02"]', '["aks01","aks02"]']
         default: '["aks01"]'
@@ -18,7 +18,7 @@ jobs:
       config: platform.services.json
       environment: pprd
       region: uks
-      cluster-slots: ${{ inputs.cluster-slots }}
+      target-clusters: ${{ inputs.target-clusters }}
       deploy-sequentially: ${{ inputs.deploy-sequentially }}
       client-id: ${{ vars.PLATFORM_CLIENT_ID }}
       runs-on: '["self-hosted","linux","aks-private"]'

@@ -1,6 +1,6 @@
 # First-time platform CI access on native AKS
 
-This optional step connects the Terraform identities to the platform pipeline. Terraform creates the dedicated platform managed identity, its CI federation and its **Cluster User** Azure assignment on selected AKS slots. An existing Entra administrator then applies one reviewed Kubernetes binding. The platform pipeline can subsequently recreate its pinned controllers, CRDs, policies and shared resources with user credentials.
+This optional step connects the Terraform identities to the platform pipeline. Terraform creates the dedicated platform managed identity, its CI federation and its **Cluster User** Azure assignment on selected AKS clusters. An existing Entra administrator then applies one reviewed Kubernetes binding. The platform pipeline can subsequently recreate its pinned controllers, CRDs, policies and shared resources with user credentials.
 
 The binding grants **cluster-admin on the selected cluster**. It includes access to every namespace and Secret, controller installation and Kubernetes authorization changes. It is appropriate only for a dedicated, protected platform identity. Build and application identities do not receive it. If this authority does not meet your requirements, keep platform installation with an authorized operator and maintain a separately reviewed narrower lifecycle.
 
@@ -26,9 +26,10 @@ terraform -chdir=../platform-infrastructure/aks output -json \
   > .aks-delivery/applied-aks.json
 ```
 
-Adjust the state directory to the AKS root used by your infrastructure pipeline. The command requires the `deployment_context` and `delivery_authorization` output wrappers with `sensitive: false`. It checks tenant, subscription, environment, region, slot and cluster resource ID.
+Adjust the state directory to the AKS root used by your infrastructure pipeline. The command requires the `deployment_context` and `delivery_authorization` output wrappers with `sensitive: false`. It checks tenant, subscription, environment, region, cluster and cluster resource ID.
 
-## 2. Observe the platform CI identity on each slot
+<a id="2-observe-the-platform-ci-identity-on-each-slot"></a>
+## 2. Observe the platform CI identity on each cluster
 
 Run the existing [identity discovery workflow or stage](native-azure-authorization.md#observe-the-actual-ci-username) using the **actual platform identity** and its ordinary protected platform environment/service connection. Terraform's Cluster User assignment allows it to obtain user credentials. The discovery operation only asks the API server for its own username; it does not need this new platform binding.
 
@@ -85,7 +86,7 @@ Copy [platform.access.json](../examples/platform.access.json) into the private c
 }
 ```
 
-The key `platform` is an example; use the actual Terraform key. No build/application principal, unknown key, shared client/object ID, undeclared slot or missing applied Cluster User assignment is accepted.
+The key `platform` is an example; use the actual Terraform key. No build/application principal, unknown key, shared client/object ID, undeclared cluster or missing applied Cluster User assignment is accepted.
 
 ## 4. Apply as the existing operator
 
@@ -105,7 +106,7 @@ for SLOT in aks01 aks02; do
 done
 ```
 
-Each slot prompts for confirmation. `--yes` suppresses that prompt for a previously reviewed operator-run script; it does not bypass the user-login, group-membership, target or opt-in checks. Run from the appropriate private network. No local/admin kubeconfig, impersonation, Azure role mutation or forced field ownership is used.
+Each cluster prompts for confirmation. `--yes` suppresses that prompt for a previously reviewed operator-run script; it does not bypass the user-login, group-membership, target or opt-in checks. Run from the appropriate private network. No local/admin kubeconfig, impersonation, Azure role mutation or forced field ownership is used.
 
 The command rechecks the live AKS ID, provisioning, authorization mode, tenant, exact administrator group set, private API and disabled local accounts. It obtains temporary user credentials, verifies the operator's observed Entra group membership and permission to bind cluster-admin, performs a server dry-run, then reconciles `ClusterRoleBinding/aks-delivery-platform` using server-side apply.
 
@@ -137,7 +138,7 @@ Run the same operator bootstrap from the local private consumer, adding the expl
   --kubernetes-proxy-url socks5://127.0.0.1:1080
 ```
 
-Repeat for the other selected slot only after reviewing its contract. The optional URL accepts only `socks5://127.0.0.1:PORT` or `socks5://[::1]:PORT`, with ports 1–65535. It adds `proxy-url` to the requested cluster in the fresh temporary kubeconfig, after confirming the current context and HTTPS server match the selected private AKS endpoint. It preserves the API hostname, certificate authority, TLS verification and user authentication. Other kubeconfig entries and the workstation's ordinary kubeconfig remain unchanged.
+Repeat for the other selected cluster only after reviewing its contract. The optional URL accepts only `socks5://127.0.0.1:PORT` or `socks5://[::1]:PORT`, with ports 1–65535. It adds `proxy-url` to the requested cluster in the fresh temporary kubeconfig, after confirming the current context and HTTPS server match the selected private AKS endpoint. It preserves the API hostname, certificate authority, TLS verification and user authentication. Other kubeconfig entries and the workstation's ordinary kubeconfig remain unchanged.
 
 Azure CLI and kubelogin run locally with the operator's existing authorized session. The command does not copy an Azure token cache, private key or kubeconfig to the worker, and does not set a global `HTTPS_PROXY`. All user-login, observed administrator-group, explicit privilege selection and server dry-run checks still apply. Without the option, the existing direct-connect behavior is unchanged.
 
@@ -149,7 +150,7 @@ Run the [platform services lifecycle](platform-services.md) through the dedicate
 
 Run the application's Azure build/deploy and promotion callers with the application identity. Its workload ServiceAccount uses the separate Terraform-managed workload identity to reach Key Vault. Platform cluster-admin does not supply a Pod's Azure access and does not replace workload federation.
 
-Record both real slot runs, private HTTPS checks, image revisions and the Azure workload qualifier output. The disposable kind tests prove Kubernetes binding and reconciliation behavior; they cannot prove Entra login, private Azure networking, Key Vault CSI or real AKS deployment.
+Record both real cluster runs, private HTTPS checks, image revisions and the Azure workload qualifier output. The disposable kind tests prove Kubernetes binding and reconciliation behavior; they cannot prove Entra login, private Azure networking, Key Vault CSI or real AKS deployment.
 
 ## Removal and reconciliation
 

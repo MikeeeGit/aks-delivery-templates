@@ -8,7 +8,7 @@ parameters:
     type: string
   - name: region
     type: string
-  - name: clusterSlots
+  - name: targetClusters
     type: object
     default: [aks01]
   - name: deploySequentially
@@ -47,8 +47,8 @@ stages:
                   raise SystemExit('Select one or both unique slots')
               PY
             env:
-              SLOTS: ${{ convertToJson(parameters.clusterSlots) }}
-  - ${{ each slot in parameters.clusterSlots }}:
+              SLOTS: ${{ convertToJson(parameters.targetClusters) }}
+  - ${{ each slot in parameters.targetClusters }}:
     - template: deploy.yml
       parameters:
         stageName: ${{ parameters.stageName }}_${{ slot }}
@@ -56,7 +56,7 @@ stages:
         deploymentEnvironment: ${{ parameters.environment }}-${{ parameters.region }}-${{ slot }}
         environment: ${{ parameters.environment }}
         region: ${{ parameters.region }}
-        clusterSlot: ${{ slot }}
+        targetCluster: ${{ slot }}
         sourceCommit: ${{ parameters.sourceCommit }}
         imageDigest: ${{ parameters.imageDigest }}
         configFile: ${{ parameters.configFile }}
@@ -66,5 +66,5 @@ stages:
           - ${{ parameters.stageName }}_Selection
           - ${{ each dependency in parameters.dependsOn }}:
             - ${{ dependency }}
-          - ${{ if and(parameters.deploySequentially, ne(slot, parameters.clusterSlots[0])) }}:
-            - ${{ parameters.stageName }}_${{ parameters.clusterSlots[0] }}
+          - ${{ if and(parameters.deploySequentially, ne(slot, parameters.targetClusters[0])) }}:
+            - ${{ parameters.stageName }}_${{ parameters.targetClusters[0] }}
